@@ -15,10 +15,8 @@ Codex 대화를 Obsidian에 대화별로 분리해 보관하고, 검증된 재�
 
 ## 3분 설치
 
-아래의 `<OWNER>/<REPOSITORY>`를 이 저장소의 실제 GitHub 주소로 바꿉니다.
-
 ```powershell
-codex plugin marketplace add <OWNER>/<REPOSITORY>
+codex plugin marketplace add ARTHONG1/codex-obsidian-manuscript-starter
 codex plugin add obsidian-manuscript-publisher@codex-obsidian-starter
 ```
 
@@ -96,7 +94,7 @@ Invoke-Pester -Script .\tests\SecretScan.Tests.ps1
 2. Local REST API를 갱신할 경우 새 릴리스 파일을 직접 검증하고 `dependencies.lock.json`의 URL·SHA-256을 함께 갱신합니다.
 3. 빈 Windows 테스트 계정에서 설치 → Obsidian 실행 → doctor `ready` → 대화 저장 → 원고 생성 → 대화 묶음 삭제까지 확인합니다.
 4. API 키, `data.json`, 인증서, 개인 보관함, 원고 원문, 개인 경로가 Git 상태에 없는지 확인합니다.
-5. GitHub 저장소를 공개한 뒤 이 README의 `<OWNER>/<REPOSITORY>`를 실제 주소로 교체합니다.
+5. GitHub 저장소가 공개 상태이고 위의 설치 주소가 실제 저장소 주소와 일치하는지 확인합니다.
 
 ## 라이선스
 
