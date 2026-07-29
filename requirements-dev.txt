@@ -1,0 +1,2 @@
+# Used only for Codex plugin and skill validation; not required by end users.
+PyYAML==6.0.2

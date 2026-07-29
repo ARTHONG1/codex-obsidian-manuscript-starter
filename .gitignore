@@ -1,0 +1,16 @@
+# User-specific and generated content
+.env
+**/data.json
+**/*.pem
+**/*.key
+**/*.pfx
+**/__pycache__/
+**/*.pyc
+
+# Local validation and generated manuscript output
+test-results/
+publish/
+
+# Editor and operating-system noise
+.DS_Store
+Thumbs.db

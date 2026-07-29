@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "localRest": {
+    "pluginId": "obsidian-local-rest-api",
+    "version": "5.0.2",
+    "assets": [
+      {
+        "name": "main.js",
+        "url": "https://github.com/coddingtonbear/obsidian-local-rest-api/releases/download/5.0.2/main.js",
+        "sha256": "e67d28fdb770d51dd9c401da570a9a4512ed6e265aefa2b2b3c31efa2ded6418"
+      },
+      {
+        "name": "manifest.json",
+        "url": "https://github.com/coddingtonbear/obsidian-local-rest-api/releases/download/5.0.2/manifest.json",
+        "sha256": "504fecedab54bfc158dbbfde1cb23d9d95f3373933a44324b48378f0bc315935"
+      },
+      {
+        "name": "styles.css",
+        "url": "https://github.com/coddingtonbear/obsidian-local-rest-api/releases/download/5.0.2/styles.css",
+        "sha256": "497944ed33ba2acbc574b0138ab379396ec3a84c521935e882b3734ce1062c05"
+      }
+    ]
+  }
+}

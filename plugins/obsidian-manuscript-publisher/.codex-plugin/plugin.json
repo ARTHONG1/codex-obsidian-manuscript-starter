@@ -1,0 +1,18 @@
+{
+  "name": "obsidian-manuscript-publisher",
+  "version": "0.1.0",
+  "description": "Archive verified Codex conversations and publish A4 Korean manuscript drafts in Obsidian.",
+  "author": {
+    "name": "AI Agent Automation contributors"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Obsidian Manuscript Publisher",
+    "shortDescription": "Save Codex work and publish Korean manuscript drafts.",
+    "longDescription": "Creates isolated conversation bundles in Obsidian and synthesizes verified work into A4 manuscript drafts with generated visuals.",
+    "developerName": "AI Agent Automation contributors",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Help me register an Obsidian manuscript project and save the current Codex conversation safely."
+  }
+}
