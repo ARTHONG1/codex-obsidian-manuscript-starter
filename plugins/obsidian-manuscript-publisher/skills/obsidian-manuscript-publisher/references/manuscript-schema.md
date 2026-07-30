@@ -19,7 +19,9 @@
       "evidence_kind": "software_result",
       "method": "generated_scene",
       "image": "assets/preview.png",
-      "caption": "예시 화면: 완성된 기술의 구성을 확인합니다."
+      "visual_kind": "result_preview",
+      "quality_review": {"purpose_match": true, "professional_layout": true, "legible_content": true, "no_generation_artifacts": true, "no_generic_ai_motifs": true, "review_note": "완성 결과가 화면 중심에 명확하게 보입니다."},
+      "caption": "그림 1-01-1. 완성된 기술의 구성 화면"
     }
   },
   "steps": [{
@@ -44,7 +46,9 @@
       "evidence_kind": "workflow",
       "method": "generated_scene",
       "image": "assets/step-01.png",
-      "caption": "예시 이미지: 이 단계의 제작 결과를 확인합니다."
+      "visual_kind": "work_product",
+      "quality_review": {"purpose_match": true, "professional_layout": true, "legible_content": true, "no_generation_artifacts": true, "no_generic_ai_motifs": true, "review_note": "이 단계에서 만든 파일과 결과가 분명하게 보입니다."},
+      "caption": "그림 1-01-2. 이 단계의 제작 결과 화면"
     }
   }],
   "real_world_use": "two or three sentences",
@@ -53,7 +57,9 @@
     "evidence_kind": "classroom_scene",
     "method": "generated_scene",
     "image": "assets/real-world-use.png",
-    "caption": "예시 이미지: 완성된 기술을 학교 업무에 적용하는 장면입니다."
+    "visual_kind": "field_scene",
+    "quality_review": {"purpose_match": true, "professional_layout": true, "legible_content": true, "no_generation_artifacts": true, "no_generic_ai_motifs": true, "review_note": "완성된 기술을 실제 업무 맥락에서 보여 줍니다."},
+    "caption": "그림 1-01-3. 완성된 기술을 학교 업무에 적용하는 장면"
   },
   "tip": "two or three sentences",
   "verification_note": ""
@@ -67,15 +73,18 @@
 - `build_action`, `artifact.name`, non-empty `artifact.paths`, `artifact.status: verified`, and `completion_check` are required.
 - `interaction.user_request`, `interaction.codex_action`, and `interaction.user_check` are required. Render these three sentences in that order so every Step shows the user directing Codex to make a technology, Codex building it, and the user verifying it.
 - A use-only Step is invalid even if it has a completed result.
+- `title` is a Korean noun phrase that ends in a meaningful work noun such as `준비`, `설계`, `구현`, `검증`, `수정`, `설정`, or `활용`; sentence endings such as `합니다` and `하기` are invalid.
+- Interaction prose uses practical present-tense honorifics, not past-tense development-report wording such as `구현했습니다` or `완성했습니다`.
 
 ## Visual Rules
 
 - Required visuals are preview, every Step, and real-world use: exactly `len(steps) + 2` slots.
 - Every visual uses `method: generated_scene` and a unique `asset_id`.
-- Every generated caption contains `예시 이미지` or `예시 화면`.
-- Every generated visual is landscape: its pixel width divided by height is at least `1.5`; render its single caption directly below the image.
+- Every visual chooses one of `ui_screen`, `work_product`, `workflow_diagram`, `result_preview`, or `field_scene` and records a complete `quality_review`.
+- Every caption is `그림 Part-챕터-순번. 설명` in render order. Do not label all generated visuals as examples or reconstructions.
+- Every generated visual is at least 1200px wide and landscape: its pixel width divided by height is at least `1.5`; render its single caption directly below the image.
 - Every visual references one manifest record with the same method and evidence kind.
 
 ## Asset Manifest Rules
 
-Every asset record requires `asset_id`, `output_path`, lowercase 64-character `sha256`, `evidence_kind`, `method: generated_scene`, and `prompt`. `output_path` stays inside the version folder and points to a valid PNG or JPEG.
+Every asset record requires `asset_id`, `output_path`, lowercase 64-character `sha256`, `evidence_kind`, `method: generated_scene`, `prompt`, `visual_kind`, and `quality_review`. `output_path` stays inside the version folder and points to a valid PNG or JPEG.

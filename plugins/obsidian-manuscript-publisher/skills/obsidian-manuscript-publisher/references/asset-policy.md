@@ -9,11 +9,21 @@ Every manuscript version keeps a self-contained visual snapshot under `v0.N/asse
 - Real-world use: one generated image.
 - Total: `len(steps) + 2`.
 
-## Relevance
+## Relevance and Visual Kind
 
-Generate after Step meanings are final. Each image must visualize the artifact or build change in its slot: Skill files, plugin structure, AI Agent flow, configuration, test state, correction, or the completed tool in a school setting. Generic decorative scenes do not satisfy the slot.
+Generate after Step meanings are final. Each image must visualize the artifact or build change in its slot. Select exactly one `visual_kind` before writing its generation prompt:
 
-Generate every visual as a wide landscape composition. Put `wide landscape composition, 16:9` in each image-generation prompt and require an actual output ratio of at least `1.5`. Regenerate a portrait or square image before validation. Give every image one caption beginning with `예시 이미지:` or `예시 화면:`; the renderer keeps that caption directly below its image.
+- `ui_screen`: a realistic, tidy software setting or execution screen.
+- `work_product`: a working file, code, document, or project structure screen.
+- `workflow_diagram`: a restrained editorial diagram of the automation flow.
+- `result_preview`: the completed CSV, document, web page, or message result.
+- `field_scene`: a realistic school-work or classroom application scene.
+
+Generic decorative scenes do not satisfy any kind. Do not use robots, holograms, glowing brains, neon interfaces, floating icons, generic laptop poses, invented menus, unreadable Korean, or unrelated charts. UI visuals use only short, verified labels; they do not attempt to generate long Korean paragraphs inside the image.
+
+Generate every visual as a wide landscape composition. Put `wide landscape composition, 16:9`, `professional`, `editorial`, and an explicit prohibition of robot, hologram, and neon-interface motifs in every prompt. Require an actual width of at least 1200px and a width-to-height ratio of at least `1.5`.
+
+After generation, inspect the selected source at original size with `view_image`. Confirm the image matches its purpose, has a professional layout, has legible content, has no generation artifacts, and has no generic AI motifs. Revise the prompt once when any check fails. A second failure stops publication.
 
 ## Version-Local Record
 
@@ -26,9 +36,11 @@ Each selected asset is copied into `v0.N/assets` and recorded in `asset-manifest
 - version-local `output_path`
 - lowercase SHA-256
 - privacy status
-- caption containing `예시 이미지` or `예시 화면`
+- `visual_kind`
+- `quality_review` with five true flags and a concise review note
+- a numbered editorial caption in render order: `그림 Part-챕터-순번. 설명`
 
-The validator checks file existence, PNG/JPEG signature, non-zero content, version-local path, hash, prompt, method, caption, and unique slot assignment.
+The validator checks file existence, PNG/JPEG signature, non-zero content, width, landscape ratio, version-local path, hash, prompt, visual kind, quality review, numbered caption, method, and unique slot assignment.
 
 ## Failure
 

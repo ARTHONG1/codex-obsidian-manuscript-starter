@@ -28,7 +28,10 @@ class ObsidianManuscriptWorkspaceTests(unittest.TestCase):
             '"codex_action"',
             '"user_check"',
             "wide landscape composition, 16:9",
-            "placed immediately below that image",
+            "view_image",
+            "numbered editorial caption",
+            "ui_screen",
+            "absence of generic AI motifs",
         ]:
             self.assertIn(required_text, skill)
 
