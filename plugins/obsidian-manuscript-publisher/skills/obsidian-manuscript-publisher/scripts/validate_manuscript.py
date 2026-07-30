@@ -25,10 +25,47 @@ KNOWN_EVIDENCE_KINDS = {
 }
 ACQUISITION_METHODS = {"generated_scene"}
 KNOWN_METHODS = set(ACQUISITION_METHODS)
-EXAMPLE_LABELS = ("예시 이미지", "예시 화면")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 MIN_LANDSCAPE_RATIO = 1.5
+MIN_IMAGE_WIDTH = 1200
 INTERACTION_FIELDS = ("user_request", "codex_action", "user_check")
+NOMINAL_STEP_ENDINGS = {
+    "준비",
+    "분석",
+    "설계",
+    "구성",
+    "구현",
+    "연결",
+    "설정",
+    "생성",
+    "비교",
+    "검증",
+    "수정",
+    "테스트",
+    "설치",
+    "배포",
+    "실행",
+    "적용",
+    "활용",
+    "정리",
+}
+SENTENCE_STYLE_ENDINGS = ("하기", "합니다", "하세요", "해보기", "해 봅니다", ".")
+REPORT_TENSE_PATTERNS = ("구현했습니다", "완성했습니다", "추가했습니다", "요청했습니다", "되었습니다")
+VISUAL_KINDS = {"ui_screen", "work_product", "workflow_diagram", "result_preview", "field_scene"}
+QUALITY_FLAGS = (
+    "purpose_match",
+    "professional_layout",
+    "legible_content",
+    "no_generation_artifacts",
+    "no_generic_ai_motifs",
+)
+REQUIRED_PROMPT_PHRASES = (
+    "wide landscape composition, 16:9",
+    "professional",
+    "editorial",
+)
+REQUIRED_NEGATIVE_PROMPT_PHRASES = ("no robot", "no hologram", "no neon interface")
+PROHIBITED_AI_MOTIFS = ("robot", "hologram", "glowing brain", "neon interface")
 
 
 def _issue(code: str, *, step: int | None = None, asset_id: str | None = None) -> dict:
@@ -62,10 +99,65 @@ def normalize_step(step: dict) -> dict:
     }
 
 
+def validate_step_title(title: str, index: int) -> list[dict]:
+    """Require a concise Korean noun phrase such as '업무 규칙 설계'."""
+    value = str(title or "").strip()
+    if not value:
+        return [_issue("step_title_nominal_required", step=index)]
+    if value.endswith(SENTENCE_STYLE_ENDINGS):
+        return [_issue("step_title_sentence_style_forbidden", step=index)]
+    if value.split()[-1] not in NOMINAL_STEP_ENDINGS:
+        return [_issue("step_title_nominal_required", step=index)]
+    return []
+
+
+def validate_practical_prose(interaction: dict, index: int) -> list[dict]:
+    """Reject only clear past-tense progress-report language in Step prose."""
+    values = (str(interaction.get(field, "")) for field in INTERACTION_FIELDS)
+    if any(pattern in value for value in values for pattern in REPORT_TENSE_PATTERNS):
+        return [_issue("step_report_tense_forbidden", step=index)]
+    return []
+
+
+def validate_visual_metadata(visual: dict, *, step: int | None, asset_id: str) -> list[dict]:
+    """Validate auditable purpose and human visual-review fields."""
+    errors: list[dict] = []
+    if visual.get("visual_kind") not in VISUAL_KINDS:
+        errors.append(_issue("visual_kind_required", step=step, asset_id=asset_id))
+    review = visual.get("quality_review")
+    if not isinstance(review, dict) or any(review.get(flag) is not True for flag in QUALITY_FLAGS) or not str(review.get("review_note", "")).strip():
+        errors.append(_issue("visual_quality_review_required", step=step, asset_id=asset_id))
+    return errors
+
+
+def quality_review_is_complete(review: object) -> bool:
+    return isinstance(review, dict) and all(review.get(flag) is True for flag in QUALITY_FLAGS) and bool(str(review.get("review_note", "")).strip())
+
+
+def prompt_is_professional(prompt: object) -> bool:
+    """Reject vague or explicitly decorative AI-art prompts."""
+    value = str(prompt or "").lower()
+    if not all(phrase in value for phrase in REQUIRED_PROMPT_PHRASES + REQUIRED_NEGATIVE_PROMPT_PHRASES):
+        return False
+    for motif in PROHIBITED_AI_MOTIFS:
+        if re.search(rf"(?<!no ){re.escape(motif)}", value):
+            return False
+    return True
+
+
+def expected_caption_prefix(part: str, chapter: str, sequence: int) -> str:
+    part_match = re.search(r"\d+", str(part))
+    chapter_match = re.search(r"\d+", str(chapter))
+    if not part_match or not chapter_match:
+        return ""
+    return f"그림 {part_match.group(0)}-{chapter_match.group(0).zfill(2)}-{sequence}. "
+
+
 def validate_step(step: dict, index: int) -> list[dict]:
     """Validate step-only rules; asset-dependent rules are handled separately."""
     normalized = normalize_step(step)
     errors: list[dict] = []
+    errors.extend(validate_step_title(normalized["title"], index))
     if normalized["step_kind"] != "build":
         errors.append(_issue("step_kind_required", step=index))
     if not str(normalized["build_action"] or "").strip():
@@ -84,6 +176,7 @@ def validate_step(step: dict, index: int) -> list[dict]:
     for field in INTERACTION_FIELDS:
         if not str(interaction.get(field, "")).strip():
             errors.append(_issue(f"interaction_{field}_required", step=index))
+    errors.extend(validate_practical_prose(interaction, index))
     return errors
 
 
@@ -97,6 +190,10 @@ def validate_asset(asset: dict, version_dir: Path) -> list[dict]:
         errors.append(_issue("unknown_evidence_kind", asset_id=asset_id))
     if method not in KNOWN_METHODS:
         errors.append(_issue("unknown_evidence_method", asset_id=asset_id))
+    if asset.get("visual_kind") not in VISUAL_KINDS:
+        errors.append(_issue("asset_visual_kind_required", asset_id=asset_id))
+    if not quality_review_is_complete(asset.get("quality_review")):
+        errors.append(_issue("asset_quality_review_required", asset_id=asset_id))
 
     output_path = asset.get("output_path")
     expected_hash = asset.get("sha256")
@@ -108,6 +205,8 @@ def validate_asset(asset: dict, version_dir: Path) -> list[dict]:
         errors.append(_issue("sha256_invalid", asset_id=asset_id))
     if method == "generated_scene" and not asset.get("prompt"):
         errors.append(_issue("generation_prompt_required", asset_id=asset_id))
+    elif method == "generated_scene" and not prompt_is_professional(asset.get("prompt")):
+        errors.append(_issue("unprofessional_prompt_contract", asset_id=asset_id))
 
     if output_path:
         path = (version_dir / output_path).resolve()
@@ -138,6 +237,8 @@ def validate_asset(asset: dict, version_dir: Path) -> list[dict]:
                 else:
                     if not width or not height or width / height < MIN_LANDSCAPE_RATIO:
                         errors.append(_issue("landscape_image_required", asset_id=asset_id))
+                    if width < MIN_IMAGE_WIDTH:
+                        errors.append(_issue("visual_minimum_resolution_required", asset_id=asset_id))
     return errors
 
 
@@ -176,7 +277,7 @@ def validate_package(manuscript: dict, manifest: dict, version_dir: Path) -> dic
         errors.extend(validate_step(raw_step, index))
 
     visual_asset_ids: set[str] = set()
-    for slot, step_index, visual in required_visuals(manuscript):
+    for sequence, (slot, step_index, visual) in enumerate(required_visuals(manuscript), start=1):
         if not visual:
             code = {
                 "preview": "preview_visual_required",
@@ -198,6 +299,7 @@ def validate_package(manuscript: dict, manifest: dict, version_dir: Path) -> dic
             continue
         visual_kind = visual.get("evidence_kind")
         visual_method = visual.get("method")
+        errors.extend(validate_visual_metadata(visual, step=step_index, asset_id=asset_id))
         if visual_kind != asset.get("evidence_kind"):
             errors.append(_issue("visual_evidence_kind_mismatch", step=step_index, asset_id=asset_id))
         if visual_method != asset.get("method"):
@@ -206,8 +308,12 @@ def validate_package(manuscript: dict, manifest: dict, version_dir: Path) -> dic
             errors.append(_issue("unknown_evidence_kind", step=step_index, asset_id=asset_id))
         if visual_method not in KNOWN_METHODS:
             errors.append(_issue("unknown_evidence_method", step=step_index, asset_id=asset_id))
-        if not any(label in str(visual.get("caption", "")) for label in EXAMPLE_LABELS):
-            errors.append(_issue("illustration_label_required", step=step_index, asset_id=asset_id))
+        if visual.get("visual_kind") != asset.get("visual_kind"):
+            errors.append(_issue("visual_kind_mismatch", step=step_index, asset_id=asset_id))
+        expected_prefix = expected_caption_prefix(manuscript.get("part", ""), manuscript.get("chapter", ""), sequence)
+        caption = str(visual.get("caption", "")).strip()
+        if not expected_prefix or not caption.startswith(expected_prefix) or len(caption) <= len(expected_prefix):
+            errors.append(_issue("figure_caption_format_required", step=step_index, asset_id=asset_id))
 
     errors = _sort_issues(errors)
     warnings = _sort_issues(warnings)

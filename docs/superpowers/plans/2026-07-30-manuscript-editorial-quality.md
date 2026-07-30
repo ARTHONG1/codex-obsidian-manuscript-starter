@@ -61,7 +61,7 @@ Test `준비`, `설계`, `구현`, `연결`, `설정`, `검증`, `수정`, `설�
 Run:
 
 ```powershell
-$env:CODEX_BUNDLED_PYTHON='C:\Users\user\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
+# Set CODEX_BUNDLED_PYTHON to the bundled Python executable for the active Codex installation.
 & $env:CODEX_BUNDLED_PYTHON -m unittest tests.test_manuscript_renderer -v
 ```
 

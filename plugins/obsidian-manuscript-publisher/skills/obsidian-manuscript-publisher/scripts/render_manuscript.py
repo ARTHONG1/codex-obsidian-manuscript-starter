@@ -25,7 +25,6 @@ FONT_PATH = Path(r"C:\Windows\Fonts\malgun.ttf")
 GREEN = colors.HexColor("#B9F63A")
 INK = colors.HexColor("#222222")
 GRAY = colors.HexColor("#F4F4F0")
-EXAMPLE_LABELS = ("예시 이미지", "예시 화면")
 MIN_LANDSCAPE_RATIO = 1.5
 
 
@@ -69,8 +68,8 @@ def required_image_path(item: dict, json_path: Path, label: str) -> Path:
     if not source:
         raise ValueError(f"{label} image is required")
     caption = str(visual.get("caption") or "")
-    if not any(example_label in caption for example_label in EXAMPLE_LABELS):
-        raise ValueError(f"{label} caption must identify an example image")
+    if not caption.strip():
+        raise ValueError(f"{label} caption is required")
     image_path = Path(source)
     if not image_path.is_absolute():
         image_path = json_path.parent / image_path

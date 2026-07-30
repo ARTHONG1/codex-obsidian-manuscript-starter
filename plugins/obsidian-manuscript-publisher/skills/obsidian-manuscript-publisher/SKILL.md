@@ -65,7 +65,7 @@ Apply this contract whenever synthesizing or revising `[실습하기]`.
 1. Silently identify what technology was actually made: Skill, plugin, AI Agent, automation, web app, data pipeline, document generator, or another concrete tool.
 2. Find the real points where a file, code module, configuration, connection, function, test result, or correction was created or changed.
 3. Select those points as Step 1 through Step N. Requirements, architecture, implementation, integration, testing, correction, and packaging are examples, not a fixed sequence.
-4. Name the chapter after the technology the reader will make with Codex, such as `Codex로 교육 뉴스 수집 Skill 만들기`, rather than after using an already completed service.
+4. Name the chapter after the technology the reader will make with Codex, rather than after using an already completed service.
 5. Every Step must contain:
 
 ```json
@@ -90,6 +90,8 @@ Apply this contract whenever synthesizing or revising `[실습하기]`.
 6. A Step that only opens, selects, sends, views, or uses an already completed tool is invalid. Put operational use in `[실전 활용하기]` instead.
 7. Do not invent build work from thin source material. When the user requests result-first production, create, run, test, and correct the in-scope deliverables before writing Steps. Otherwise stop and identify the missing build evidence.
 8. Render every Step as one natural paragraph of two or three sentences in this order: the user's request to Codex, Codex's concrete build action and result, then the user's verification or revision request. Do not show a dialogue box or a raw transcript. Codex may connect another named tool or service, but the Step must still show the reader directing the build through Codex.
+9. Write each Step title as a concise Korean noun phrase that names the meaningful work unit. End it in a work noun such as `준비`, `분석`, `설계`, `구성`, `구현`, `연결`, `설정`, `생성`, `검증`, `수정`, `테스트`, `설치`, `배포`, `실행`, `적용`, or `활용`. Use `실제 양식과 업무 자료 준비` and `생성 결과 검증과 오류 수정`, not `자료를 준비합니다` or `자료 준비하기`.
+10. Keep Step prose as practical present-tense honorifics. Show what the reader prepares, asks Codex to make, and checks in the result. Do not write retrospective development reports such as `Codex가 구현했습니다` or `시스템을 완성했습니다`.
 
 ## Synthesize a Manuscript Version
 
@@ -123,17 +125,18 @@ Every manuscript version requires one preview image, one image per Step, and one
 
 1. Finalize the manuscript Step meanings before generating images.
 2. For every slot, use the `imagegen` skill and Codex built-in image generation. Do not use an external image API or request a user API key.
-3. Make each prompt specific to the current artifact and build change. Show the Skill structure, plugin modules, agent flow, configuration relationship, test state, correction, or school-use scene that belongs to that slot. Generic laptop, teacher, or classroom decoration is insufficient. Every prompt must request `wide landscape composition, 16:9`; the saved image must have a pixel width-to-height ratio of at least `1.5`.
-4. Save each selected PNG or JPEG under the version-local `assets/` folder. Give every slot a unique `asset_id`.
-5. Record `method: generated_scene`, generation prompt, version-local output path, lowercase SHA-256, evidence kind, and privacy status in `asset-manifest.json`.
-6. Give every generated illustration one caption beginning with `예시 이미지` or `예시 화면`, placed immediately below that image. State the artifact or completion check visible in the image; never present it as a verified real interface or guaranteed result.
-7. If generation fails, change the prompt based on the failure and retry once. If it fails again, report `image_generation_failed` and stop before Markdown finalization, HTML/PDF rendering, or Vault publication.
-8. Do not create a blank panel, image placeholder, or partially illustrated manuscript.
+3. Before prompting, choose one visual kind for each slot: `ui_screen` for a setting or execution screen, `work_product` for files or code, `workflow_diagram` for an automation flow, `result_preview` for a finished output, or `field_scene` for school use. Make the prompt specific to the current artifact and build change. Generic laptop, teacher, or classroom decoration is insufficient.
+4. Every prompt must request `wide landscape composition, 16:9`, a professional editorial layout, and a realistic software or document presentation appropriate to its visual kind. Explicitly prohibit robots, holograms, glowing brains, neon interfaces, floating icons, invented menus, unreadable Korean, and unrelated charts. UI images use only short verified labels, never long generated Korean paragraphs. The saved image must be at least 1200px wide with a pixel width-to-height ratio of at least `1.5`.
+5. Inspect each generated source at original size with `view_image` before selecting it. Confirm purpose match, professional layout, legible content, absence of generation artifacts, and absence of generic AI motifs. Record those five checks and a concise review note in both the visual metadata and asset manifest. Revise a failed prompt once; a second failure stops publication.
+6. Save each selected PNG or JPEG under the version-local `assets/` folder. Give every slot a unique `asset_id`.
+7. Record `method: generated_scene`, visual kind, generation prompt, version-local output path, lowercase SHA-256, evidence kind, privacy status, and the completed quality review in `asset-manifest.json`.
+8. Give every image a numbered editorial caption in render order: `그림 Part-챕터-순번. 설명`. Place it immediately below its image. State the visible artifact, workflow state, result, or completion check. Do not call a generated visual an actual screenshot, and do not force all captions to say `예시 이미지` or `재현 화면`.
+9. Do not create a blank panel, image placeholder, or partially illustrated manuscript.
 
 ## Validate, Render, and Publish
 
 1. Run `scripts/validate_manuscript.py manuscript.json asset-manifest.json asset-validation.json`.
-2. Accept only `status: ready`. The validator requires the Flexible Build-Step Contract, the three-part Codex interaction, and every generated image slot. It checks unique IDs, prompts, immediate captions, landscape ratio, version-local paths, PNG/JPEG signatures, and SHA-256 values.
+2. Accept only `status: ready`. The validator requires the Flexible Build-Step Contract, nominal Step titles, practical present-tense Step prose, the three-part Codex interaction, and every generated image slot. It checks unique IDs, visual kinds, quality reviews, professional prompts, numbered immediate captions, width, landscape ratio, version-local paths, PNG/JPEG signatures, and SHA-256 values.
 3. Run `scripts/render_manuscript.py manuscript.json <version-folder>` only after validation is ready. It produces A4 portrait `manuscript.html` and `manuscript.pdf` with no image fallback.
 4. Keep the local version folder as the source of truth. Run `scripts/publish_manuscript_version.py` to publish Markdown, JSON, HTML, PDF, manifests, and assets.
 5. Publish text through the text route and images/PDF through the opaque binary route. Require byte-for-byte readback and SHA-256 equality for every file.
@@ -171,6 +174,7 @@ scripts/delete_conversation_bundle.py
 6. Do not claim one-request perfection, human-free operation, guaranteed accuracy, or autonomous correction. The user verifies real work rules, privacy, security, cost, permissions, and final suitability.
 7. Preserve verified names, functions, commands, sequences, and results. Use `확인 필요` outside final publication prose when a fact is unsupported.
 8. Use image captions for completion checks, cautions, or distinctions, not to repeat the paragraph.
+9. Make generated visuals look like professional educational-technology publishing assets. Select an actual screen, work product, workflow, result preview, or field scene based on the current purpose; never use generic AI decoration as a substitute for evidence.
 
 ## Exclude or Pause
 
