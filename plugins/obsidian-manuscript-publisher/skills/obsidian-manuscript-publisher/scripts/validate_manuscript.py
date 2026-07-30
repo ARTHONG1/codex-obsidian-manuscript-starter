@@ -29,6 +29,28 @@ EXAMPLE_LABELS = ("예시 이미지", "예시 화면")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 MIN_LANDSCAPE_RATIO = 1.5
 INTERACTION_FIELDS = ("user_request", "codex_action", "user_check")
+NOMINAL_STEP_ENDINGS = {
+    "준비",
+    "분석",
+    "설계",
+    "구성",
+    "구현",
+    "연결",
+    "설정",
+    "생성",
+    "비교",
+    "검증",
+    "수정",
+    "테스트",
+    "설치",
+    "배포",
+    "실행",
+    "적용",
+    "활용",
+    "정리",
+}
+SENTENCE_STYLE_ENDINGS = ("하기", "합니다", "하세요", "해보기", "해 봅니다", ".")
+REPORT_TENSE_PATTERNS = ("구현했습니다", "완성했습니다", "추가했습니다", "요청했습니다", "되었습니다")
 
 
 def _issue(code: str, *, step: int | None = None, asset_id: str | None = None) -> dict:
@@ -62,10 +84,31 @@ def normalize_step(step: dict) -> dict:
     }
 
 
+def validate_step_title(title: str, index: int) -> list[dict]:
+    """Require a concise Korean noun phrase such as '업무 규칙 설계'."""
+    value = str(title or "").strip()
+    if not value:
+        return [_issue("step_title_nominal_required", step=index)]
+    if value.endswith(SENTENCE_STYLE_ENDINGS):
+        return [_issue("step_title_sentence_style_forbidden", step=index)]
+    if value.split()[-1] not in NOMINAL_STEP_ENDINGS:
+        return [_issue("step_title_nominal_required", step=index)]
+    return []
+
+
+def validate_practical_prose(interaction: dict, index: int) -> list[dict]:
+    """Reject only clear past-tense progress-report language in Step prose."""
+    values = (str(interaction.get(field, "")) for field in INTERACTION_FIELDS)
+    if any(pattern in value for value in values for pattern in REPORT_TENSE_PATTERNS):
+        return [_issue("step_report_tense_forbidden", step=index)]
+    return []
+
+
 def validate_step(step: dict, index: int) -> list[dict]:
     """Validate step-only rules; asset-dependent rules are handled separately."""
     normalized = normalize_step(step)
     errors: list[dict] = []
+    errors.extend(validate_step_title(normalized["title"], index))
     if normalized["step_kind"] != "build":
         errors.append(_issue("step_kind_required", step=index))
     if not str(normalized["build_action"] or "").strip():
@@ -84,6 +127,7 @@ def validate_step(step: dict, index: int) -> list[dict]:
     for field in INTERACTION_FIELDS:
         if not str(interaction.get(field, "")).strip():
             errors.append(_issue(f"interaction_{field}_required", step=index))
+    errors.extend(validate_practical_prose(interaction, index))
     return errors
 
 

@@ -59,7 +59,7 @@ class ManuscriptRendererTests(unittest.TestCase):
             "quick_reference": {"대상": "교사", "활용 도구": "Codex", "준비물": "업무 규칙", "핵심 기능": "Skill 제작"},
             "preview": {"visual": visuals["preview"]},
             "steps": [{
-                "title": "Codex에게 제작 목표를 전달합니다",
+                "title": "자동화 Skill 구조와 실행 스크립트 구현",
                 "body": "이 문단은 구조화된 대화 문단으로 대체되어야 합니다.",
                 "step_kind": "build",
                 "build_action": "Skill 파일과 실행 스크립트를 생성하고 테스트합니다.",
@@ -101,6 +101,55 @@ class ManuscriptRendererTests(unittest.TestCase):
             result, validation = self.validate_package(manuscript, manifest, report)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("landscape_image_required", {issue["code"] for issue in validation["errors"]})
+
+    def test_validator_rejects_sentence_style_step_titles(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            manuscript, manifest, report = self.write_valid_package(Path(temporary))
+            payload = json.loads(manuscript.read_text(encoding="utf-8"))
+            payload["steps"][0]["title"] = "Codex에게 제작 목표를 전달합니다"
+            manuscript.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            result, validation = self.validate_package(manuscript, manifest, report)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("step_title_sentence_style_forbidden", {issue["code"] for issue in validation["errors"]})
+
+    def test_validator_rejects_verb_style_step_titles(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            manuscript, manifest, report = self.write_valid_package(Path(temporary))
+            payload = json.loads(manuscript.read_text(encoding="utf-8"))
+            payload["steps"][0]["title"] = "뉴스 브리핑 규칙 설계하기"
+            manuscript.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            result, validation = self.validate_package(manuscript, manifest, report)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("step_title_sentence_style_forbidden", {issue["code"] for issue in validation["errors"]})
+
+    def test_validator_accepts_nominal_step_titles(self):
+        titles = [
+            "실제 업무 자료 준비",
+            "업무 규칙 분석과 자동화 설계",
+            "CSV 생성 기능 구현",
+            "외부 서비스 연결",
+            "예약 실행 환경 설정",
+            "생성 결과 검증과 오류 수정",
+            "완성된 Skill 설치와 활용",
+        ]
+        for title in titles:
+            with self.subTest(title=title), tempfile.TemporaryDirectory() as temporary:
+                manuscript, manifest, report = self.write_valid_package(Path(temporary))
+                payload = json.loads(manuscript.read_text(encoding="utf-8"))
+                payload["steps"][0]["title"] = title
+                manuscript.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+                result, validation = self.validate_package(manuscript, manifest, report)
+                self.assertEqual(result.returncode, 0, validation)
+
+    def test_validator_rejects_report_style_step_prose(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            manuscript, manifest, report = self.write_valid_package(Path(temporary))
+            payload = json.loads(manuscript.read_text(encoding="utf-8"))
+            payload["steps"][0]["interaction"]["codex_action"] = "Codex가 Skill 파일과 실행 스크립트를 구현했습니다."
+            manuscript.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            result, validation = self.validate_package(manuscript, manifest, report)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("step_report_tense_forbidden", {issue["code"] for issue in validation["errors"]})
 
     def test_renderer_uses_codex_dialogue_and_keeps_caption_with_image(self):
         with tempfile.TemporaryDirectory() as temporary:
