@@ -248,7 +248,8 @@ def required_visuals(manuscript: dict) -> list[tuple[str, int | None, dict]]:
         ("preview", None, manuscript.get("preview", {}).get("visual") or {}),
     ]
     visuals.extend(
-        ("step", index, step.get("visual") or {})
+        ("step", index, step.get("visual") or {}) if isinstance(step, dict)
+        else ("step", index, {})
         for index, step in enumerate(manuscript.get("steps", []), start=1)
     )
     visuals.append(("real_world_use", None, manuscript.get("real_world_use_visual") or {}))
@@ -259,6 +260,35 @@ def validate_package(manuscript: dict, manifest: dict, version_dir: Path) -> dic
     """Return a deterministic validation result for a manuscript and asset manifest."""
     errors: list[dict] = []
     warnings: list[dict] = []
+    required_types = {
+        "output_profile": str,
+        "source_markdown": str,
+        "part": str,
+        "chapter": str,
+        "title": str,
+        "chapter_intro": str,
+        "quick_reference": dict,
+        "preview": dict,
+        "steps": list,
+        "real_world_use": str,
+        "real_world_use_visual": dict,
+        "tip": str,
+        "verification_note": str,
+    }
+    if not isinstance(manuscript, dict):
+        return {"status": "invalid", "errors": [{"code": "top_level_object_required"}], "warnings": []}
+    for field, expected_type in required_types.items():
+        if field not in manuscript:
+            errors.append(_issue(f"top_level_{field}_required"))
+        elif not isinstance(manuscript[field], expected_type):
+            errors.append(_issue(f"top_level_{field}_type"))
+    if isinstance(manuscript.get("steps"), list):
+        for index, step in enumerate(manuscript["steps"], start=1):
+            if not isinstance(step, dict):
+                errors.append(_issue("top_level_steps_item_type", step=index))
+    if errors:
+        errors = _sort_issues(errors)
+        return {"status": "invalid", "errors": errors, "warnings": []}
     asset_list = manifest.get("assets", [])
     assets = {asset.get("asset_id"): asset for asset in asset_list}
 
@@ -329,11 +359,17 @@ def main(argv: list[str]) -> int:
         print("usage: validate_manuscript.py MANUSCRIPT_JSON ASSET_MANIFEST OUTPUT_REPORT", file=sys.stderr)
         return 2
     manuscript_path, manifest_path, report_path = map(Path, argv[1:])
+    manuscript_bytes = manuscript_path.read_bytes()
+    manifest_bytes = manifest_path.read_bytes()
     result = validate_package(
-        json.loads(manuscript_path.read_text(encoding="utf-8")),
-        json.loads(manifest_path.read_text(encoding="utf-8")),
+        json.loads(manuscript_bytes.decode("utf-8")),
+        json.loads(manifest_bytes.decode("utf-8")),
         manuscript_path.parent,
     )
+    result["validated_inputs"] = {
+        "manuscript_sha256": hashlib.sha256(manuscript_bytes).hexdigest(),
+        "asset_manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+    }
     report_path.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return 0 if result["status"] == "ready" else 1
 

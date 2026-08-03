@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import html
+import hashlib
+import importlib.util
 import json
+import os
+import shutil
 import sys
-from pathlib import Path
+import tempfile
+from pathlib import Path, PurePosixPath
 
 from PIL import Image as PillowImage
 from reportlab.lib import colors
@@ -16,9 +21,11 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Image, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfgen import canvas as pdfcanvas
 from reportlab.graphics import renderPDF
 from reportlab.graphics.barcode.qr import QrCodeWidget
 from reportlab.graphics.shapes import Drawing
+from reportlab.lib.utils import TimeStamp
 
 
 FONT_PATH = Path(r"C:\Windows\Fonts\malgun.ttf")
@@ -26,6 +33,18 @@ GREEN = colors.HexColor("#B9F63A")
 INK = colors.HexColor("#222222")
 GRAY = colors.HexColor("#F4F4F0")
 MIN_LANDSCAPE_RATIO = 1.5
+OUTPUT_PROFILE = "book_a4"
+
+
+class _DeterministicCanvas(pdfcanvas.Canvas):
+    """Use ReportLab's stable metadata/ID mode for reproducible publication bytes."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs["invariant"] = 1
+        super().__init__(*args, **kwargs)
+        self._doc._timeStamp = TimeStamp(1)
+        self.setCreator("Obsidian Manuscript Publisher")
+        self.setAuthor("")
 
 
 def text(value: object) -> str:
@@ -58,6 +77,120 @@ def validate(data: dict) -> None:
         raise ValueError("steps must be a non-empty list")
     for index, step in enumerate(data["steps"], start=1):
         interaction_text(step, f"Step {index}")
+
+
+def _load_validator():
+    validator_path = Path(__file__).resolve().with_name("validate_manuscript.py")
+    spec = importlib.util.spec_from_file_location("obsidian_book_a4_validator", validator_path)
+    if spec is None or spec.loader is None:
+        raise ValueError("book_a4 validator could not be loaded")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _validation_ready(json_file: Path, data: dict) -> tuple[Path, dict, Path]:
+    if not isinstance(data, dict) or data.get("output_profile") != OUTPUT_PROFILE:
+        raise ValueError("render_manuscript.py requires output_profile book_a4")
+    manifest_path = json_file.parent / "asset-manifest.json"
+    report_path = json_file.parent / "asset-validation.json"
+    if not manifest_path.is_file() or not report_path.is_file():
+        raise ValueError("book_a4 asset manifest and validation report are required before rendering")
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    if not isinstance(report, dict) or report.get("status") != "ready":
+        raise ValueError("book_a4 validation status must be ready before rendering")
+    current_inputs = {
+        "manuscript_sha256": hashlib.sha256(json_file.read_bytes()).hexdigest(),
+        "asset_manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+    }
+    if report.get("validated_inputs") != current_inputs:
+        raise ValueError("book_a4 validation is stale; validate the current package again")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    fresh_report = _load_validator().validate_package(data, manifest, json_file.parent)
+    if fresh_report.get("status") != "ready":
+        raise ValueError("book_a4 package is stale or invalid; validate it again")
+
+    source_markdown = str(data.get("source_markdown") or "").strip()
+    source_name = PurePosixPath(source_markdown)
+    if (
+        not source_markdown
+        or source_name.name != source_markdown
+        or "\\" in source_markdown
+        or source_name.suffix.lower() != ".md"
+    ):
+        raise ValueError("book_a4 source_markdown must name one version-root Markdown file")
+    source_path = json_file.parent / source_markdown
+    if not source_path.is_file():
+        raise ValueError("book_a4 source_markdown file is required before rendering")
+    return report_path, report, source_path
+
+
+def _atomic_replace_files(files: tuple[tuple[Path, bytes], ...]) -> None:
+    temporary_paths: list[Path] = []
+    backup_paths: dict[Path, Path] = {}
+    installed_paths: list[Path] = []
+    try:
+        for final_path, content in files:
+            final_path.parent.mkdir(parents=True, exist_ok=True)
+            handle, temporary_name = tempfile.mkstemp(
+                prefix=f".{final_path.name}.", suffix=".tmp", dir=final_path.parent
+            )
+            temporary_path = Path(temporary_name)
+            temporary_paths.append(temporary_path)
+            with os.fdopen(handle, "wb") as stream:
+                stream.write(content)
+        for final_path, _ in files:
+            if final_path.exists():
+                handle, backup_name = tempfile.mkstemp(
+                    prefix=f".{final_path.name}.", suffix=".bak", dir=final_path.parent
+                )
+                os.close(handle)
+                backup_path = Path(backup_name)
+                shutil.copy2(final_path, backup_path)
+                backup_paths[final_path] = backup_path
+        for temporary_path, (final_path, _) in zip(temporary_paths, files, strict=True):
+            os.replace(temporary_path, final_path)
+            installed_paths.append(final_path)
+    except Exception:
+        for final_path in reversed(installed_paths):
+            backup_path = backup_paths.get(final_path)
+            if backup_path is not None and backup_path.exists():
+                os.replace(backup_path, final_path)
+            elif final_path.exists():
+                final_path.unlink()
+        raise
+    finally:
+        for temporary_path in temporary_paths:
+            if temporary_path.exists():
+                temporary_path.unlink()
+        for backup_path in backup_paths.values():
+            if backup_path.exists():
+                backup_path.unlink()
+
+
+def _write_validated_render(
+    output_directory: Path,
+    html_content: str,
+    pdf_bytes: bytes,
+    report_path: Path,
+    report: dict,
+    source_path: Path,
+) -> None:
+    html_bytes = html_content.encode("utf-8")
+    updated_report = dict(report)
+    updated_report["validated_outputs"] = {
+        source_path.name: hashlib.sha256(source_path.read_bytes()).hexdigest(),
+        "manuscript.html": hashlib.sha256(html_bytes).hexdigest(),
+        "manuscript.pdf": hashlib.sha256(pdf_bytes).hexdigest(),
+    }
+    report_bytes = (json.dumps(updated_report, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    _atomic_replace_files(
+        (
+            (output_directory / "manuscript.html", html_bytes),
+            (output_directory / "manuscript.pdf", pdf_bytes),
+            (report_path, report_bytes),
+        )
+    )
 
 
 def required_image_path(item: dict, json_path: Path, label: str) -> Path:
@@ -95,27 +228,28 @@ def validate_required_visuals(data: dict, json_path: Path) -> None:
     required_image_path(data.get("real_world_use_visual") or {}, json_path, "real-world-use")
 
 
-def visual_html(item: dict, json_path: Path, label: str) -> str:
+def visual_html(item: dict, json_path: Path, output_directory: Path, label: str) -> str:
     image_path = required_image_path(item, json_path, label)
     caption = visual_fields(item)[1]
-    return f'''<figure class="visual-unit"><img src="{text(image_path.as_uri())}" alt="{text(label)}">
+    relative_image = os.path.relpath(image_path, output_directory).replace(os.sep, "/")
+    return f'''<figure class="visual-unit"><img src="{text(relative_image)}" alt="{text(caption)}">
     <figcaption>{text(caption)}</figcaption></figure>'''
 
 
-def render_html(data: dict, json_path: Path) -> str:
+def render_html(data: dict, json_path: Path, output_directory: Path) -> str:
     reference = "".join(
         f"<tr><th>{text(label)}</th><td>{text(value)}</td></tr>"
         for label, value in data["quick_reference"].items()
     )
     steps = "".join(
         f'''<section class="step"><h2>Step {index}. {text(step.get("title"))}</h2>
-        <p>{text(interaction_text(step, f"Step {index}"))}</p>{visual_html(step, json_path, f"Step {index} 이미지")}</section>'''
+        <p>{text(interaction_text(step, f"Step {index}"))}</p>{visual_html(step, json_path, output_directory, f"Step {index} 이미지")}</section>'''
         for index, step in enumerate(data["steps"], 1)
     )
     preview = data["preview"]
     qr = text(preview.get("qr_url") or "QR 또는 자료 저장소 링크를 연결하세요")
     return f'''<!doctype html>
-<html lang="ko"><head><meta charset="utf-8"><title>{text(data["title"])}</title>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{text(data["title"])}</title>
 <style>
 @page {{ size: A4 portrait; margin: 16mm 17mm 18mm; }}
 * {{ box-sizing:border-box; }} body {{ font-family:'Malgun Gothic','맑은 고딕',sans-serif; color:#222; font-size:10.5pt; line-height:1.75; margin:0; }}
@@ -129,10 +263,10 @@ h1 {{ font-size:22pt; margin:0 0 15mm; font-weight:700; }} h2 {{ font-size:13pt;
 <h1>[{text(data["part"])} - {text(data["chapter"])}] {text(data["title"])}</h1>
 <div class="label">[이번 챕터에서는]</div><div class="box">{text(data["chapter_intro"])}</div>
 <div class="label">[한눈에 보기]</div><table>{reference}</table>
-<div class="label">[미리 보기]</div><div class="preview"><div class="qr"><strong>{text(preview.get("qr_label") or "QR코드")}</strong><div class="qr-content">{qr}</div></div><div class="result"><strong>{text(preview.get("result_title"))}</strong><p>{text(preview.get("result_summary"))}</p>{visual_html(preview, json_path, "결과물 이미지")}</div></div>
+<div class="label">[미리 보기]</div><div class="preview"><div class="qr"><strong>{text(preview.get("qr_label") or "QR코드")}</strong><div class="qr-content">{qr}</div></div><div class="result"><strong>{text(preview.get("result_title"))}</strong><p>{text(preview.get("result_summary"))}</p>{visual_html(preview, json_path, output_directory, "결과물 이미지")}</div></div>
 <div class="label">[실습하기]</div>{steps}
 <div class="label">[실전 활용하기]</div><p>{text(data["real_world_use"])}</p>
-{visual_html(data.get("real_world_use_visual", {}), json_path, "실전 활용하기 이미지")}
+{visual_html(data.get("real_world_use_visual", {}), json_path, output_directory, "실전 활용하기 이미지")}
 <div class="label">[꿀팁 더하기]</div><div class="tip">{text(data["tip"])}</div><p class="note">※ {text(data["verification_note"])}</p>
 </body></html>'''
 
@@ -218,21 +352,44 @@ def render_pdf(data: dict, json_path: Path, output_path: Path) -> None:
     tip = Table([[Paragraph(text(data["tip"]), st["body"])]], colWidths=[176 * mm])
     tip.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.8, INK), ("BACKGROUND", (0, 0), (-1, -1), GRAY), ("PADDING", (0, 0), (-1, -1), 10)]))
     story.append(KeepTogether([tip_label, Spacer(1, 3 * mm), tip, Spacer(1, 3 * mm), Paragraph("※ " + text(data["verification_note"]), st["small"])]))
-    doc.build(story)
+    doc.build(story, canvasmaker=_DeterministicCanvas)
 
 
 def main(json_file: Path, output_directory: Path) -> None:
     json_file = json_file.resolve()
     output_directory = output_directory.resolve()
     data = json.loads(json_file.read_text(encoding="utf-8"))
+    report_path, report, source_path = _validation_ready(json_file, data)
     validate(data)
     validate_required_visuals(data, json_file)
     output_directory.mkdir(parents=True, exist_ok=True)
-    (output_directory / "manuscript.html").write_text(render_html(data, json_file), encoding="utf-8")
-    render_pdf(data, json_file, output_directory / "manuscript.pdf")
+    html_content = render_html(data, json_file, output_directory)
+    handle, temporary_name = tempfile.mkstemp(
+        prefix=".manuscript.pdf.", suffix=".tmp", dir=output_directory
+    )
+    os.close(handle)
+    temporary_pdf = Path(temporary_name)
+    try:
+        render_pdf(data, json_file, temporary_pdf)
+        pdf_bytes = temporary_pdf.read_bytes()
+        _write_validated_render(
+            output_directory,
+            html_content,
+            pdf_bytes,
+            report_path,
+            report,
+            source_path,
+        )
+    finally:
+        if temporary_pdf.exists():
+            temporary_pdf.unlink()
 
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
         raise SystemExit("Usage: render_manuscript.py <manuscript.json> <output-directory>")
-    main(Path(sys.argv[1]), Path(sys.argv[2]))
+    try:
+        main(Path(sys.argv[1]), Path(sys.argv[2]))
+    except Exception as error:
+        print(f"ERROR: {type(error).__name__}: {error}", file=sys.stderr)
+        raise SystemExit(1) from None

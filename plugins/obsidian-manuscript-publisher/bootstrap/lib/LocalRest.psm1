@@ -1,9 +1,25 @@
-Set-StrictMode -Version Latest
+﻿Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+function Resolve-LocalRestLockPath {
+    [CmdletBinding()]
+    param([string]$BootstrapRoot)
+
+    # The lock must resolve from inside the bootstrap tree that is actually shipped, so the
+    # packaged plugin stays self-contained. The parent location is only a legacy fallback.
+    $candidates = @(
+        (Join-Path $BootstrapRoot "dependencies.lock.json"),
+        (Join-Path (Split-Path -Parent $BootstrapRoot) "dependencies.lock.json")
+    )
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate) { return $candidate }
+    }
+    return $candidates[0]
+}
 
 function Get-LocalRestLock {
     [CmdletBinding()]
-    param([string]$LockPath = (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "dependencies.lock.json"))
+    param([string]$LockPath = (Resolve-LocalRestLockPath -BootstrapRoot (Split-Path -Parent $PSScriptRoot)))
 
     if (-not (Test-Path -LiteralPath $LockPath)) { throw "Dependency lock file is missing: $LockPath" }
     $lock = Get-Content -Raw -LiteralPath $LockPath | ConvertFrom-Json
@@ -25,9 +41,38 @@ function Assert-LocalRestPluginTargetIsSafe {
 
     $target = Join-Path $VaultPath (".obsidian\\plugins\\" + $PluginId)
     if (Test-Path -LiteralPath $target) {
-        throw "Local REST plugin is already present and will not be overwritten: $target"
+        throw ("Local REST plugin is already present and will not be overwritten: {0}`n" -f $target) +
+              "기존 API 키와 설정을 덮어쓰지 않기 위해 중단했습니다. 이 버전은 전용 새 빈 보관함에만 설치할 수 있습니다. " +
+              "-VaultPath 에 아직 존재하지 않는 새 폴더 경로를 지정해 다시 실행하세요."
     }
     return $target
+}
+
+function Set-EnabledCommunityPlugin {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)] [string]$EnabledPath,
+        [Parameter(Mandatory = $true)] [string]$PluginId
+    )
+
+    # Obsidian requires a flat JSON array of plugin-id strings. Wrapping a deserialised empty
+    # array in @() yields a one-element array whose element is itself an empty array, which
+    # serialises to an object literal and silently disables every community plugin. Build an
+    # explicitly typed string list instead, and always force array shape on the way out.
+    $enabled = New-Object System.Collections.Generic.List[string]
+    if (Test-Path -LiteralPath $EnabledPath) {
+        $existing = Get-Content -Raw -LiteralPath $EnabledPath | ConvertFrom-Json
+        foreach ($entry in @($existing)) {
+            if ($entry -is [string] -and -not [string]::IsNullOrWhiteSpace($entry)) {
+                if (-not $enabled.Contains([string]$entry)) { $enabled.Add([string]$entry) }
+            }
+        }
+    }
+    if (-not $enabled.Contains([string]$PluginId)) { $enabled.Add([string]$PluginId) }
+
+    $payload = "[" + (($enabled | ForEach-Object { ConvertTo-Json -InputObject $_ }) -join ",") + "]"
+    Set-Content -LiteralPath $EnabledPath -Value $payload -Encoding UTF8 -NoNewline
+    return $enabled.ToArray()
 }
 
 function Install-PinnedLocalRestPlugin {
@@ -69,9 +114,9 @@ function Install-PinnedLocalRestPlugin {
         $app | ConvertTo-Json | Set-Content -LiteralPath $appPath -Encoding UTF8 -NoNewline
 
         $enabledPath = Join-Path $obsidianPath "community-plugins.json"
-        $enabled = if (Test-Path -LiteralPath $enabledPath) { @(Get-Content -Raw -LiteralPath $enabledPath | ConvertFrom-Json) } else { @() }
-        if ($enabled -notcontains $dependency.pluginId) { $enabled += $dependency.pluginId }
-        $enabled | ConvertTo-Json | Set-Content -LiteralPath $enabledPath -Encoding UTF8 -NoNewline
+        # Suppress the helper's return value: leaking it into the output stream would make this
+        # function emit a collection instead of the single summary object callers index into.
+        Set-EnabledCommunityPlugin -EnabledPath $enabledPath -PluginId $dependency.pluginId | Out-Null
         return [pscustomobject]@{ PluginId = $dependency.pluginId; Version = $dependency.version; Path = $target }
     }
     finally {
@@ -88,20 +133,32 @@ function Wait-ForLocalRest {
     )
 
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-    while ([DateTime]::UtcNow -lt $deadline) {
-        if (Test-Path -LiteralPath $DataPath) {
-            $data = Get-Content -Raw -LiteralPath $DataPath | ConvertFrom-Json
-            $port = [int]$data.port
-            if ($port -gt 0 -and $port -lt 65536) {
-                & curl.exe --fail --silent --show-error --insecure "https://127.0.0.1:$port/" 2>$null | Out-Null
-                if ($LASTEXITCODE -eq 0) {
-                    return [pscustomobject]@{ DataPath = $DataPath; Port = $port }
+    $temporary = Join-Path ([IO.Path]::GetTempPath()) ("codex-obsidian-ready-" + [guid]::NewGuid().ToString("N"))
+    try {
+        New-Item -ItemType Directory -Path $temporary -Force | Out-Null
+        $certificatePath = Join-Path $temporary "local-rest-ca.pem"
+        while ([DateTime]::UtcNow -lt $deadline) {
+            if (Test-Path -LiteralPath $DataPath) {
+                $data = Get-Content -Raw -LiteralPath $DataPath | ConvertFrom-Json
+                $port = [int]$data.port
+                # StrictMode turns a missing property into a terminating error, so probe for it.
+                $cryptoProperty = $data.PSObject.Properties["crypto"]
+                $certificate = if ($cryptoProperty -and $null -ne $cryptoProperty.Value) { [string]$cryptoProperty.Value.cert } else { "" }
+                if ($port -gt 0 -and $port -lt 65536 -and -not [string]::IsNullOrWhiteSpace($certificate)) {
+                    [IO.File]::WriteAllText($certificatePath, $certificate, [Text.UTF8Encoding]::new($false))
+                    & curl.exe --fail --silent --show-error --proto "=https" --max-redirs 0 --cacert $certificatePath "https://127.0.0.1:$port/" 2>$null | Out-Null
+                    if ($LASTEXITCODE -eq 0) {
+                        return [pscustomobject]@{ DataPath = $DataPath; Port = $port }
+                    }
                 }
             }
+            Start-Sleep -Milliseconds 500
         }
-        Start-Sleep -Milliseconds 500
+        throw "Local REST API did not become ready before the deadline. Keep Obsidian open and retry the doctor command."
     }
-    throw "Local REST API did not become ready before the deadline. Keep Obsidian open and retry the doctor command."
+    finally {
+        if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Recurse -Force }
+    }
 }
 
 function Get-LocalRestConnection {
@@ -111,9 +168,12 @@ function Get-LocalRestConnection {
     if (-not (Test-Path -LiteralPath $DataPath -PathType Leaf)) { throw "Local REST API configuration is missing: $DataPath" }
     $data = Get-Content -Raw -LiteralPath $DataPath | ConvertFrom-Json
     if ([string]::IsNullOrWhiteSpace([string]$data.apiKey)) { throw "Local REST API configuration does not contain an API key." }
+    $cryptoProperty = $data.PSObject.Properties["crypto"]
+    $certificate = if ($cryptoProperty -and $null -ne $cryptoProperty.Value) { [string]$cryptoProperty.Value.cert } else { "" }
+    if ([string]::IsNullOrWhiteSpace($certificate)) { throw "Local REST API configuration does not contain a public certificate." }
     $port = [int]$data.port
     if ($port -lt 1 -or $port -gt 65535) { throw "Local REST API configuration has an invalid port." }
-    return [pscustomobject]@{ ApiKey = [string]$data.apiKey; Port = $port; BaseUrl = "https://127.0.0.1:$port" }
+    return [pscustomobject]@{ ApiKey = [string]$data.apiKey; Certificate = $certificate; Port = $port; BaseUrl = "https://127.0.0.1:$port" }
 }
 
 function Invoke-LoopbackRestRequest {
@@ -131,16 +191,24 @@ function Invoke-LoopbackRestRequest {
         New-Item -ItemType Directory -Path $temporary -Force | Out-Null
         $configPath = Join-Path $temporary "curl.conf"
         $responsePath = Join-Path $temporary "response.bin"
+        $certificatePath = Join-Path $temporary "local-rest-ca.pem"
+        [IO.File]::WriteAllText($certificatePath, [string]$Connection.Certificate, [Text.UTF8Encoding]::new($false))
         $escapedKey = $Connection.ApiKey.Replace('\\', '\\\\').Replace('"', '\\"')
         @(
-            "insecure",
             "silent",
             "show-error",
             "fail",
             "header = `"Authorization: Bearer $escapedKey`""
         ) | Set-Content -LiteralPath $configPath -Encoding ASCII
 
-        $arguments = @("--config", $configPath, "--request", $Method, "--output", $responsePath)
+        $arguments = @(
+            "--config", $configPath,
+            "--cacert", $certificatePath,
+            "--proto", "=https",
+            "--max-redirs", "0",
+            "--request", $Method,
+            "--output", $responsePath
+        )
         if ($null -ne $Body) {
             $bodyPath = Join-Path $temporary "request.bin"
             [IO.File]::WriteAllBytes($bodyPath, $Body)
@@ -180,4 +248,4 @@ function Test-LocalRestRoundTrip {
     }
 }
 
-Export-ModuleMember -Function Get-LocalRestLock, Assert-LocalRestPluginTargetIsSafe, Install-PinnedLocalRestPlugin, Wait-ForLocalRest, Test-LocalRestRoundTrip
+Export-ModuleMember -Function Resolve-LocalRestLockPath, Get-LocalRestLock, Assert-LocalRestPluginTargetIsSafe, Set-EnabledCommunityPlugin, Install-PinnedLocalRestPlugin, Wait-ForLocalRest, Test-LocalRestRoundTrip

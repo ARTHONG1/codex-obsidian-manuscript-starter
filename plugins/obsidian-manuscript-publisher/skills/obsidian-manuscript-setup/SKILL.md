@@ -27,7 +27,7 @@ Proceed only after the user explicitly approves this Local REST community-plugin
 ## Recovery Rules
 
 - If the doctor cannot connect, keep Obsidian open, verify that the Local REST API plugin remains enabled, and rerun the doctor. Do not fall back to direct Vault filesystem writes.
-- If the target Vault is not empty or the Local REST plugin folder already exists, stop. Explain that setup intentionally refuses overwrites and ask the user to choose a new empty folder or preserve their existing configuration.
+- If the target Vault is not empty or the Local REST plugin folder already exists, stop. Explain that setup intentionally refuses overwrites, quote the exact blocking path from the error message, and ask the user for a new folder path that does not exist yet. This release installs only into a dedicated new empty folder; there is no adopt-an-existing-Vault path, so never imply one.
 - If a checksum fails, stop without enabling the plugin. Never bypass the mismatch or substitute an unpinned download.
 - To disconnect the starter without deleting notes, use `bootstrap\\uninstall.ps1 -RemoveRuntimeConfig`. It intentionally leaves the Vault and Obsidian plugin untouched.
 

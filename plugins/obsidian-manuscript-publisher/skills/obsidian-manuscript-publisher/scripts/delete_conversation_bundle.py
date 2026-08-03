@@ -145,11 +145,13 @@ def delete_conversation_bundle(
             "conversation metadata file manifest mismatch; refusing deletion: "
             f"expected={sorted(expected)} actual={sorted(actual)}"
         )
+    metadata_hash = hashlib.sha256(metadata_payload).hexdigest()
 
     sibling = _sibling_probe(config_path, root, conversation_key, base_url)
     deleted: list[str] = []
     failures: list[str] = []
-    for path in sorted(files, key=lambda item: (item.count("/"), item), reverse=True):
+    sibling_files = [path for path in files if path != metadata_path]
+    for path in sorted(sibling_files, key=lambda item: (item.count("/"), item), reverse=True):
         try:
             delete_and_verify(config_path, path, base_url)
             deleted.append(path)
@@ -163,8 +165,26 @@ def delete_conversation_bundle(
         sibling_payload = read_vault_file(config_path, sibling_path, base_url)
         if sibling_payload is None or hashlib.sha256(sibling_payload).hexdigest() != expected_hash:
             failures.append(f"unrelated conversation changed: {sibling_path}")
+    current_metadata = read_vault_file(config_path, metadata_path, base_url)
+    if current_metadata is None:
+        failures.append("metadata disappeared before final deletion")
+    elif hashlib.sha256(current_metadata).hexdigest() != metadata_hash:
+        failures.append("metadata changed after snapshot")
     if failures:
-        raise RuntimeError("partial_delete_failed: " + "; ".join(failures))
+        metadata_state = "metadata preserved; resume available" if current_metadata is not None else "metadata unavailable; resume blocked"
+        raise RuntimeError(
+            "partial_delete_failed (" + metadata_state + "): " + "; ".join(failures)
+        )
+    try:
+        delete_and_verify(config_path, metadata_path, base_url)
+        deleted.append(metadata_path)
+    except Exception as error:
+        metadata_remaining = read_vault_file(config_path, metadata_path, base_url)
+        metadata_state = "metadata preserved; resume available" if metadata_remaining is not None else "metadata unavailable; resume blocked"
+        raise RuntimeError(
+            "partial_delete_failed (" + metadata_state + "): "
+            f"{metadata_path}: {error}"
+        ) from error
     physical_bundle_removed = False
     if vault_root is not None:
         physical_bundle_removed = remove_empty_bundle_directories(vault_root, root, conversation_key)

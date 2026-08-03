@@ -8,7 +8,8 @@
       "name": "obsidian-manuscript-publisher",
       "source": {
         "source": "local",
-        "path": "./plugins/obsidian-manuscript-publisher"
+        "path": "./plugins/obsidian-manuscript-publisher",
+        "ref": "v0.3.0"
       },
       "policy": {
         "installation": "AVAILABLE",

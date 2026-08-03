@@ -4,6 +4,8 @@
 
 ```json
 {
+  "output_profile": "book_a4",
+  "source_markdown": "chapter-title.md",
   "part": "Part 1",
   "chapter": "01",
   "title": "chapter title",
@@ -88,3 +90,44 @@
 ## Asset Manifest Rules
 
 Every asset record requires `asset_id`, `output_path`, lowercase 64-character `sha256`, `evidence_kind`, `method: generated_scene`, `prompt`, `visual_kind`, and `quality_review`. `output_path` stays inside the version folder and points to a valid PNG or JPEG.
+
+## Validation and Publication Contract
+
+- `output_profile` is exactly `book_a4`.
+- `source_markdown` names one Markdown file in the version root; it cannot contain a directory, backslash, drive prefix, or traversal segment.
+- `asset-validation.json` records the exact inputs validated:
+
+```json
+{
+  "status": "ready",
+  "validated_inputs": {
+    "manuscript_sha256": "lowercase-64-character-sha256",
+    "asset_manifest_sha256": "lowercase-64-character-sha256"
+  }
+}
+```
+
+Publication recalculates both hashes before any REST request. A mismatch is a stale validation failure. The published package contains only the production plan, `source_markdown`, manuscript JSON, asset manifest, asset validation report, rendered HTML/PDF, and the exact manifest-listed assets.
+
+## `book_a4` Desktop Bundle
+
+After fresh validation, successful HTML/PDF rendering, and the independent Vault publication attempt, the selected immutable version may be exported as a `book_a4 desktop bundle`:
+
+```text
+00 최신본/
+├── 01 본문-복사용.txt
+├── 02 원고.md
+├── 03 미리보기.html
+├── 04 인쇄용.pdf
+├── 05 이미지-삽입순서.md
+├── images/
+└── _meta/export-manifest.json
+```
+
+- `01 본문-복사용.txt` is generated from validated structured content and marks each image insertion position explicitly.
+- `02 원고.md` and `03 미리보기.html` rewrite only manifest-listed image references to numbered files under `images/`.
+- `04 인쇄용.pdf` is copied byte-for-byte from the verified render. It is a layout/print preview, not the primary copy source.
+- `05 이미지-삽입순서.md` orders preview, Step 1 through Step N, then real-world use and maps each numbered file to its caption, alt text, asset ID, and hash.
+- `_meta/export-manifest.json` contains non-secret hashes and independent Vault publication status. It never contains credentials or private source attachments.
+
+The project directory comes from the registry `destination_root`. `00 최신본` changes only after complete staged hash verification; older immutable versions remain under `99 이전버전/v0.N`.

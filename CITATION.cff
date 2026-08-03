@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+title: "Codex Obsidian Manuscript Starter"
+message: "If this project supports your work, please cite the repository and the release version you used."
+type: software
+authors:
+  - family-names: "AI찬우쌤"
+    website: "https://classddok.com/"
+repository-code: "https://github.com/ARTHONG1/codex-obsidian-manuscript-starter"
+license: MIT
+version: 0.3.0

@@ -1,2 +1,3 @@
-# Used only for Codex plugin and skill validation; not required by end users.
+# Development and validation dependencies.
+-r requirements.txt
 PyYAML==6.0.2

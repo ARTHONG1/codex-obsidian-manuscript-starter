@@ -22,6 +22,13 @@ TEXT_CONTENT_TYPES = {
 }
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Reject redirects so the Bearer token never leaves the loopback origin."""
+
+    def redirect_request(self, request, file_pointer, status, message, headers, new_url):
+        raise urllib.error.HTTPError(new_url, status, "Local REST redirects are forbidden", headers, file_pointer)
+
+
 def _relative_path(value: str) -> str:
     path = PurePosixPath(value.replace("\\", "/"))
     if path.is_absolute() or ".." in path.parts or not path.parts:
@@ -31,9 +38,24 @@ def _relative_path(value: str) -> str:
 
 def _local_base_url(value: str) -> str:
     parsed = urllib.parse.urlparse(value)
-    if parsed.scheme not in {"http", "https"} or parsed.hostname != "127.0.0.1" or parsed.username or parsed.password:
-        raise ValueError("Obsidian REST endpoint must be a local 127.0.0.1 URL")
-    return value.rstrip("/")
+    try:
+        port = parsed.port
+    except ValueError as error:
+        raise ValueError("Obsidian REST endpoint has an invalid port") from error
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname != "127.0.0.1"
+        or parsed.username
+        or parsed.password
+        or port is None
+        or not 1 <= port <= 65535
+        or parsed.path not in {"", "/"}
+        or parsed.params
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("Obsidian REST endpoint must be an HTTPS 127.0.0.1 origin")
+    return f"https://127.0.0.1:{port}"
 
 
 def _content_type(vault_relative_path: str) -> str:
@@ -46,7 +68,11 @@ def _request(url: str, token: str, method: str, body: bytes | None = None, conte
     if body is not None:
         headers["Content-Type"] = content_type or "application/octet-stream"
     request = urllib.request.Request(url, data=body, headers=headers, method=method)
-    with urllib.request.urlopen(request, context=context, timeout=10) as response:
+    handlers: list[object] = [_NoRedirectHandler()]
+    if context is not None:
+        handlers.insert(0, urllib.request.HTTPSHandler(context=context))
+    opener = urllib.request.build_opener(*handlers)
+    with opener.open(request, timeout=10) as response:
         return response.read()
 
 
@@ -55,8 +81,15 @@ def _connection(config_path: Path, base_url: str | None = None) -> tuple[str, st
     token = config.get("apiKey")
     if not token:
         raise ValueError("Obsidian Local REST API key is unavailable")
+    certificate = config.get("crypto", {}).get("cert") if isinstance(config.get("crypto"), dict) else None
+    if not certificate or not str(certificate).strip():
+        raise ValueError("Obsidian Local REST public certificate is unavailable")
     url_base = _local_base_url(base_url or f"https://127.0.0.1:{config.get('port', 27124)}")
-    context = ssl._create_unverified_context() if url_base.startswith("https://127.0.0.1") else None
+    try:
+        context = ssl.create_default_context(cadata=str(certificate))
+    except ssl.SSLError as error:
+        raise ValueError("Obsidian Local REST public certificate is invalid") from error
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     return token, url_base, context
 
 

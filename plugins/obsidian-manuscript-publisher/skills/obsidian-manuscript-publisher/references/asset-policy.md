@@ -42,6 +42,8 @@ Each selected asset is copied into `v0.N/assets` and recorded in `asset-manifest
 
 The validator checks file existence, PNG/JPEG signature, non-zero content, width, landscape ratio, version-local path, hash, prompt, visual kind, quality review, numbered caption, method, and unique slot assignment.
 
+At publication, only manifest-listed assets under the version-local `assets/` directory are allowed. An unlisted image, duplicate path, duplicate asset ID, path traversal, or a manifest/visual path mismatch stops publication before any Local REST request.
+
 ## Failure
 
 Revise a failed generation prompt once. A second failure returns `image_generation_failed` and stops Markdown finalization, HTML/PDF rendering, and Vault publication. Never emit a blank panel or partially illustrated manuscript.

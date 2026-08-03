@@ -16,3 +16,6 @@ publish/
 Thumbs.db
 
 .worktrees/
+
+# Agent planning notes are local working state, not release content
+.planning/

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import argparse
 import re
 import sys
 from pathlib import Path, PurePosixPath
@@ -175,3 +176,42 @@ def publish_bundle(
         "published_files": len(published),
         "vault_relative_paths": published,
     }
+
+
+def _cli_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Archive conversation turns into one local Obsidian bundle."
+    )
+    parser.add_argument("--conversations-root", type=Path, required=True)
+    parser.add_argument("--conversation-key", required=True)
+    parser.add_argument("--title", required=True)
+    parser.add_argument(
+        "--turns-json",
+        type=Path,
+        required=True,
+        help="UTF-8 JSON file containing an array of turn objects.",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _cli_parser()
+    args = parser.parse_args(argv)
+    try:
+        turns = json.loads(args.turns_json.read_text(encoding="utf-8"))
+        if not isinstance(turns, list):
+            raise ValueError("turns JSON must contain an array")
+        result = archive_conversation(
+            args.conversations_root,
+            args.conversation_key,
+            args.title,
+            turns,
+        )
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+        parser.error(str(error))
+    print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,16 +1,17 @@
 ---
 name: obsidian-manuscript-publisher
-description: Use when a user wants to register an Obsidian manuscript project, save or refresh the current Codex conversation, synthesize and publish an A4 manuscript, remove the current conversation's Obsidian bundle, exclude one task, or pause a manuscript project.
+description: Use when a user wants to register an Obsidian writing project, save or refresh the current Codex conversation, synthesize and publish an A4 manuscript or a platform-independent blog, remove the current conversation's Obsidian bundle, exclude one task, or pause a writing project.
 ---
 
 # Obsidian Manuscript Publisher
 
-Use Obsidian as both an auditable conversation source and an editorial manuscript workspace. Keep every Codex conversation isolated by its exact task/thread ID, convert only verified technology-building work into manuscript Steps, and never report success before deterministic validation passes.
+Use Obsidian as both an auditable conversation source and an editorial writing workspace. Keep every Codex conversation isolated by its exact task/thread ID, produce either the fixed A4 book profile or the independent adaptive blog profile, and never report success before deterministic validation passes.
 
 ## Runtime Configuration
 
-- Read the user-local runtime configuration from `%LOCALAPPDATA%\CodexObsidianManuscript\runtime.json`. It stores only the selected Vault path and the Local REST plugin configuration path; it never stores or prints an API key.
+- Read the user-local runtime configuration from `%LOCALAPPDATA%\CodexObsidianManuscript\runtime.json`. It stores the selected Vault path, the Local REST plugin configuration path, and an optional non-secret `publicationRoot`; it never stores or prints an API key.
 - Resolve the Vault, registry, unit template, and Local REST configuration from that file. The registry is `<Vault>\_system\manuscript-projects.json`, the unit template is `<Vault>\02 Templates\원고 단위 템플릿.md`, and the conversation root inside each registered project is `00 Conversations/<conversation_key>`.
+- Resolve the desktop publication destination from `publicationRoot`. For a compatible schema-v1 runtime that omits it, use the Windows Desktop known folder plus `옵시디언 원고`; never hard-code a user profile path.
 - If the runtime configuration is missing, malformed, or points outside the configured Vault, do not guess paths and do not write directly to disk. Tell the user to run `bootstrap\install-windows.ps1` from the published starter repository, then `bootstrap\doctor.ps1` with Obsidian open.
 
 ## Non-Negotiable Contracts
@@ -19,10 +20,20 @@ Use Obsidian as both an auditable conversation source and an editorial manuscrip
 2. Use the active task/thread ID as `conversation_key`. Different IDs always produce different folders, even when titles and topics match.
 3. Save Vault content only through the installed local Obsidian REST API on `127.0.0.1`. Do not use direct filesystem writes, `Copy-Item`, or delayed workspace fallbacks for Vault publication.
 4. Require byte-for-byte readback for text and binary uploads. Require SHA-256 equality when publishing a manuscript version.
-5. Keep manuscript versions immutable. Allocate a new `v0.N`; never overwrite an earlier draft.
-6. Keep Step count dynamic. Use Step 1 through Step N according to the actual verified build workflow.
-7. New manuscript visuals use `generated_scene only`, created with Codex built-in image generation. The required image count is `len(steps) + 2`.
-8. Do not render HTML/PDF or publish a version while any required image is absent, invalid, duplicated, unrelated to its Step, or unverified.
+5. Keep every book and blog version immutable. Allocate a new `v0.N`; never overwrite an earlier draft.
+6. For `book_a4`, keep Step count dynamic. Use Step 1 through Step N according to the actual verified build workflow.
+7. New `book_a4` visuals use `generated_scene only`, created with Codex built-in image generation. The required image count is `len(steps) + 2`.
+8. Do not render or publish either profile while any required evidence or image is absent, invalid, duplicated, unrelated, or unverified.
+
+## Output Profile Selection
+
+Choose one explicit output profile before synthesis. Conversation archive, deletion, Local REST publication, byte readback, and immutable versions are shared; schemas, renderers, output files, image rules, and Vault destinations are not shared.
+
+- `book_a4`: select for `출판 원고형`, `A4 원고`, `책 원고`, or a manuscript request that names no profile. `book_a4 remains the default` for backward compatibility.
+- `adaptive_blog`: select for `범용 블로그형`, `블로그 버전`, `Markdown과 HTML 블로그`, or another explicit request for a platform-independent blog.
+- `둘 다`: run `book_a4` and `adaptive_blog` as two independent pipelines and allocate a separate immutable version for each. A failure in one pipeline must not overwrite, relabel, or invalidate the other pipeline's verified output.
+
+Always record the chosen profile in its source JSON. Never send `blog.json` to the book validator or renderer, and never send `manuscript.json` to the blog validator or renderer.
 
 ## Register a Project
 
@@ -30,7 +41,7 @@ Trigger: `이 프로젝트를 원고 프로젝트로 등록해줘` or equivalent
 
 1. Identify the exact Codex project, book, Part, chapter, template, and Vault-relative project folder.
 2. Add or update only that project entry in the registry.
-3. Create the project brief, `00 Conversations`, and `01 Manuscript` locations through the local REST API when absent.
+3. Create the project brief, `00 Conversations`, `01 Manuscript`, and `02 Blog` locations through the local REST API when absent.
 4. Report the registered source project and destination. Do not change other registry entries.
 
 ## Archive and Refresh the Current Conversation
@@ -40,7 +51,7 @@ Triggers include `이 대화 전체를 옵시디언에 저장해줘`, `이 대�
 1. Confirm the active task belongs to a registered project.
 2. Use `codex_app__read_thread` or the active Codex thread-reading capability, include readable outputs, and follow cursors until no older turn remains. Never scan other Codex threads.
 3. Normalize user, assistant, and readable tool-output turns with stable turn IDs.
-4. Run `scripts/archive_conversation.py` against a staging `00 Conversations` root. The script creates exactly:
+4. Run `scripts/archive_conversation.py` against a staging `00 Conversations` root. The archive command creates the conversation source bundle; create `material-card.md` separately with `refresh_material_card()` after editorial material has been prepared. The bundle layout is:
 
 ```text
 00 Conversations/<conversation_key>/
@@ -49,6 +60,18 @@ Triggers include `이 대화 전체를 옵시디언에 저장해줘`, `이 대�
 ├─ metadata.json
 └─ assets/
 ```
+
+For a local staging archive, run the script with a UTF-8 JSON array of turn objects. The command writes no Vault files and prints the archive result as one JSON object:
+
+```text
+python scripts/archive_conversation.py \
+  --conversations-root "<staging 00 Conversations>" \
+  --conversation-key "<active task ID>" \
+  --title "<conversation title>" \
+  --turns-json "<UTF-8 turns.json>"
+```
+
+The JSON input must be an array whose objects contain `id`, `role`, and optional `text`; this local command prepares the bundle only. Use `publish_bundle` from the Python library for the separate Local REST publication step after the active task and registered project have been confirmed.
 
 5. `conversation.md` preserves the full chronological source. `material-card.md` distills claims, candidate prose, reader problems, build-step candidates, school uses, reusable prompts/configuration, cautions, and useful assets.
 6. Copy relevant conversation attachments into the same bundle's `assets/`, record hashes in `metadata.json`, and never merge assets across conversation keys.
@@ -90,10 +113,12 @@ Apply this contract whenever synthesizing or revising `[실습하기]`.
 6. A Step that only opens, selects, sends, views, or uses an already completed tool is invalid. Put operational use in `[실전 활용하기]` instead.
 7. Do not invent build work from thin source material. When the user requests result-first production, create, run, test, and correct the in-scope deliverables before writing Steps. Otherwise stop and identify the missing build evidence.
 8. Render every Step as one natural paragraph of two or three sentences in this order: the user's request to Codex, Codex's concrete build action and result, then the user's verification or revision request. Do not show a dialogue box or a raw transcript. Codex may connect another named tool or service, but the Step must still show the reader directing the build through Codex.
-9. Write each Step title as a concise Korean noun phrase that names the meaningful work unit. End it in a work noun such as `준비`, `분석`, `설계`, `구성`, `구현`, `연결`, `설정`, `생성`, `검증`, `수정`, `테스트`, `설치`, `배포`, `실행`, `적용`, or `활용`. Use `실제 양식과 업무 자료 준비` and `생성 결과 검증과 오류 수정`, not `자료를 준비합니다` or `자료 준비하기`.
+9. Write each Step title as a concise Korean noun phrase that names the meaningful work unit. The final word must belong to this exact noun allowlist: `준비`, `분석`, `설계`, `구성`, `구현`, `연결`, `설정`, `생성`, `검증`, `수정`, `테스트`, `설치`, `배포`, `실행`, `적용`, or `활용`. Use `실제 양식과 업무 자료 준비` and `생성 결과 검증과 오류 수정`, not `자료를 준비합니다` or `자료 준비하기`.
 10. Keep Step prose as practical present-tense honorifics. Show what the reader prepares, asks Codex to make, and checks in the result. Do not write retrospective development reports such as `Codex가 구현했습니다` or `시스템을 완성했습니다`.
 
 ## Synthesize a Manuscript Version
+
+This section applies only to `book_a4`.
 
 Triggers include `Part 1-01 원고로 합성해줘`, `이 프로젝트 재료로 원고를 만들어줘`, and `실제 결과물을 만들고 이미지 포함 원고로 완성해줘`.
 
@@ -121,7 +146,7 @@ Step 1 ... Step N
 
 ## Required AI Image Workflow
 
-Every manuscript version requires one preview image, one image per Step, and one real-world-use image. The total is `len(steps) + 2`.
+This section applies only to `book_a4`. Every manuscript version requires one preview image, one image per Step, and one real-world-use image. The total is `len(steps) + 2`.
 
 1. Finalize the manuscript Step meanings before generating images.
 2. For every slot, use the `imagegen` skill and Codex built-in image generation. Do not use an external image API or request a user API key.
@@ -135,12 +160,66 @@ Every manuscript version requires one preview image, one image per Step, and one
 
 ## Validate, Render, and Publish
 
+This section applies only to `book_a4`.
+
 1. Run `scripts/validate_manuscript.py manuscript.json asset-manifest.json asset-validation.json`.
-2. Accept only `status: ready`. The validator requires the Flexible Build-Step Contract, nominal Step titles, practical present-tense Step prose, the three-part Codex interaction, and every generated image slot. It checks unique IDs, visual kinds, quality reviews, professional prompts, numbered immediate captions, width, landscape ratio, version-local paths, PNG/JPEG signatures, and SHA-256 values.
+2. Accept only `status: ready`. Require `asset-validation.json.validated_inputs` to contain the current SHA-256 values of both `manuscript.json` and `asset-manifest.json`; any later change makes the report stale and requires validation again. The validator requires the Flexible Build-Step Contract, nominal Step titles, practical present-tense Step prose, the three-part Codex interaction, and every generated image slot. It checks unique IDs, visual kinds, quality reviews, professional prompts, numbered immediate captions, width, landscape ratio, version-local paths, PNG/JPEG signatures, and SHA-256 values.
 3. Run `scripts/render_manuscript.py manuscript.json <version-folder>` only after validation is ready. It produces A4 portrait `manuscript.html` and `manuscript.pdf` with no image fallback.
-4. Keep the local version folder as the source of truth. Run `scripts/publish_manuscript_version.py` to publish Markdown, JSON, HTML, PDF, manifests, and assets.
+4. Keep the local version folder as the source of truth. Set `manuscript.json.output_profile` to `book_a4` and `source_markdown` to the exact version-root Markdown filename. Before any REST request, `scripts/publish_manuscript_version.py` enforces the exact publication allowlist: `production-plan.json`, that one source Markdown file, `manuscript.json`, `asset-manifest.json`, `asset-validation.json`, `manuscript.html`, `manuscript.pdf`, and manifest-listed assets only. Missing or additional files stop publication. It must snapshot every allowed file before the first REST request and upload only those immutable byte snapshots.
 5. Publish text through the text route and images/PDF through the opaque binary route. Require byte-for-byte readback and SHA-256 equality for every file.
-6. Report `published` only after `publication-validation.json` confirms all files. Otherwise report `publication_failed`; never substitute a workspace file or another version.
+6. If any upload fails, preserve every remote file that may already have been written and record the verified and incomplete paths in `publication-validation.json`. Never delete or roll back remote files automatically because the Local REST API does not provide conditional write ownership. Report `publication_failed`, leave the failed local version unchanged for diagnosis, and retry only by allocating a fresh immutable version; never substitute a workspace file or another version.
+
+## Synthesize an Adaptive Blog Version
+
+Triggers include `이 대화 재료로 플랫폼 독립 범용 블로그형을 만들어줘`, `블로그 버전으로 만들어줘`, and `Markdown과 HTML 블로그로 만들어줘`.
+
+1. Confirm that `adaptive_blog` was explicitly selected. Read only the material cards named by the user; when none are named, use active cards in the registered project's `00 Conversations` bundles.
+2. Read `references/blog-schema.md` and `references/blog-editorial-policy.md`. Do not load the A4 Step structure, fixed book sections, book image formula, or PDF renderer into this branch.
+3. Reconcile duplicate claims and conflicting evidence. Choose exactly one source-supported mode: `practical_guide`, `case_story`, or `insight_column`. Record the reason in `mode_reason` without exposing it in the public article.
+4. Normalize a safe lowercase ASCII `topic-slug`, resolve the blog root as `02 Blog/<topic-slug>`, and use `scripts/next_version.py` to allocate a fresh `02 Blog/<topic-slug>/v0.N`. Never reuse or overwrite an earlier blog version.
+5. Write `blog.json` and `asset-manifest.json`. Use five to seven ordered sections. Give every section exactly one role from the selected mode, include all five required roles in canonical order, and repeat a role only in an adjacent section when the topic needs six or seven sections. Do not use a `roles` array, a `supporting` role, or an unknown role.
+6. Give every evidence point a unique `evidence_id`. Before writing `blog.json`, compare every `source_refs` value with the active conversation bundle's stable turn IDs and attachment or file entries. Reject unresolved source_refs instead of inventing or repairing them. Make `lead_evidence_refs` and every section's `evidence_refs` resolve to those IDs; when first-person experience is source-supported, make `first_person_evidence_refs` resolve only to verified `observation` evidence. Preserve verified files, commands, errors, decisions, results, and limitations. Do not fabricate first-person experience or imitate a named writer's distinctive voice.
+7. Store article body content as plain paragraph blocks only. Do not place raw Markdown lists, fenced code, or raw HTML in `paragraphs`; the renderer escapes content syntax instead of interpreting it.
+8. Add exactly one hero visual and zero to four evidence-bearing section visuals. Use a cleared `provided_asset` with provenance when suitable source material exists, or use the `imagegen` skill for a professional `generated_scene`. Every generated image must use the required landscape editorial prompt, carry the exact internal disclosure `AI 생성 설명 이미지` in both visual metadata and the manifest, pass original-size visual inspection, and never be described as an actual screenshot in public alt text or captions.
+9. Run `scripts/validate_blog.py blog.json asset-manifest.json blog-validation.json`. Continue only when it returns `status: ready`; otherwise keep the last verified version unchanged and report the deterministic error codes.
+10. Run `scripts/render_blog.py blog.json <version-folder>`. It produces portable `blog.md` and semantic `blog.html` only. Do not create a PDF for this profile.
+11. Keep the local version folder as the source of truth. Run `scripts/publish_manuscript_version.py` with the Vault destination `02 Blog/<topic-slug>/v0.N`; the generic publisher must snapshot its exact allowlist before the first REST request, upload every text and binary snapshot through Local REST, and create `publication-validation.json` only after byte-for-byte readback succeeds. A partial failure is preserved and retried only in a fresh immutable version, never by deleting uncertain remote content or overwriting the failed version.
+12. Report the selected mode, exact version path, evidence count, image count, `blog-validation.json` status, and `publication-validation.json` status. Never claim that the article defeats an AI detector or is guaranteed to be indistinguishable from a person.
+
+## Deterministic Error Codes
+
+Report the exact machine-readable code when a validation, rendering, publication, or export step stops. The current documented contract includes `blog_profile_required`, `insufficient_evidence`, `asset_hash_mismatch`, `image_generation_failed`, `validation_not_ready`, `stale_validation`, `unexpected_source_file`, `unsafe_path`, and `immutable_export_conflict`. The profile references list the complete validator-specific code tables; do not invent a new code in a user-facing report.
+
+`image_generation_failed` means the image prompt was revised once and the second generation still failed. Stop Markdown finalization, HTML/PDF rendering, and Vault publication; never substitute a blank panel or partial manuscript.
+
+## Verified Desktop Publication Library
+
+Read `references/publication-library.md` whenever a verified book or blog must be placed in the copy-ready desktop publication library. This export is separate from the Obsidian Vault and never changes the immutable source version.
+
+For both profiles, enforce this exact order: `validation → render → Vault publication attempt → desktop export`.
+
+1. Do not invoke the desktop exporter until the selected profile's validation report has `status: ready`, its `validated_inputs` still match the current metadata and asset manifest, and its renderer has produced every required file. A book requires its source Markdown, `manuscript.html`, and `manuscript.pdf`; a blog requires `blog.md` and `blog.html` and must not have a desktop PDF.
+2. Read `vaultPath` and `publicationRoot` from the runtime configuration. Read `destination_root` from the exact registered project. Never infer the project directory from a title and never pass a Local REST API key, certificate, or plugin configuration contents to the exporter.
+3. Attempt Vault publication when Local REST is available and record `vault_publication_status`. A Vault REST failure does not block desktop export when the selected local package remains freshly validated and fully rendered.
+4. Run exactly one selected version through:
+
+```text
+scripts/export_publication_bundle.py
+  --source-version-dir <absolute selected v0.N folder>
+  --publication-root <absolute runtime publicationRoot>
+  --project-destination-root <exact registry destination_root>
+  --vault-path <absolute runtime vaultPath>
+```
+
+5. Record `desktop_export_status` from the exporter as `exported`, `history_exported`, `already_exported`, or `export_failed`. Validation, render, or export failure never claims completion and never changes the prior verified desktop `00 최신본`.
+6. Report `vault_publication_status` and `desktop_export_status` as separate lines, followed by the output profile, immutable source version, and final desktop path. Never describe successful desktop export as successful Vault publication.
+
+Use these explicit routes:
+
+- `바탕화면 출판함만 다시 만들어줘`: re-export only the exact already-verified version established by the active request. Do not regenerate content or images.
+- `v0.3 검증본을 출판함에 정리해줘`: backfill only the named immutable version.
+
+For either route, require the exact project, profile, and version. Never scan all historical versions implicitly. If the request is ambiguous, obtain the missing selector before exporting anything.
 
 ## Delete Current Conversation Bundle
 
