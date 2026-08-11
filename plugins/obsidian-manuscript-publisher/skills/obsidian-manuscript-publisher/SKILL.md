@@ -21,8 +21,8 @@ Use Obsidian as both an auditable conversation source and an editorial writing w
 3. Save Vault content only through the installed local Obsidian REST API on `127.0.0.1`. Do not use direct filesystem writes, `Copy-Item`, or delayed workspace fallbacks for Vault publication.
 4. Require byte-for-byte readback for text and binary uploads. Require SHA-256 equality when publishing a manuscript version.
 5. Keep every book and blog version immutable. Allocate a new `v0.N`; never overwrite an earlier draft.
-6. For `book_a4`, keep Step count dynamic. Use Step 1 through Step N according to the actual verified build workflow.
-7. New `book_a4` visuals use `generated_scene only`, created with Codex built-in image generation. The required image count is `len(steps) + 2`.
+6. For a newly synthesized `book_a4`, always select `template_version: 3`. Keep Step count dynamic and use Step 1 through Step N according to the actual verified build workflow.
+7. New `book_a4` visuals use `generated_scene only`, created with Codex built-in image generation. V3 requires topic-specific preview, preparation, and Step visuals; an evidence-backed real-world-use visual remains optional.
 8. Do not render or publish either profile while any required evidence or image is absent, invalid, duplicated, unrelated, or unverified.
 
 ## Output Profile Selection
@@ -34,6 +34,20 @@ Choose one explicit output profile before synthesis. Conversation archive, delet
 - `둘 다`: run `book_a4` and `adaptive_blog` as two independent pipelines and allocate a separate immutable version for each. A failure in one pipeline must not overwrite, relabel, or invalidate the other pipeline's verified output.
 
 Always record the chosen profile in its source JSON. Never send `blog.json` to the book validator or renderer, and never send `manuscript.json` to the blog validator or renderer.
+
+## New Book A4 Routing Contract
+
+The public profile remains `book_a4`, but the template version is a separate mandatory decision. Every newly synthesized A4 manuscript MUST use `template_version: 3`; generic requests such as `원고를 만들어줘`, `A4 원고로 합성해줘`, and `다음 버전을 만들어줘` must never silently fall back to V1 or V2.
+
+Use V1 only when the user explicitly requests `기존 양식`, `레거시 양식`, or `V1`, or when opening, validating, rendering, or exporting an existing historical manuscript that has no `template_version: 2`. Do not rewrite a historical package merely to add the field. Report immutable manuscript version and template version separately, for example `version: v0.3`, `template: book_a4 V2`.
+
+Before generating any image or publishing any file, run the deterministic routing/preflight helper:
+
+```text
+python scripts/select_book_template.py --request-text "<user request>"
+```
+
+The helper must return V3 for a new generic request and reject unknown template versions. A new V3 draft is invalid if it lacks `editorial_quality_version: 3`, `practice_blocks`, or `editorial_review`. Stop with `book_template_contract_mismatch`; never continue by producing a V1-looking package.
 
 ## Register a Project
 
@@ -124,11 +138,12 @@ Triggers include `Part 1-01 원고로 합성해줘`, `이 프로젝트 재료로
 
 1. Read only the material cards named by the user. If none are named, use active cards in the registered project's `00 Conversations` bundles.
 2. Reconcile duplicates, uncertainty, and conflicts. Keep unsupported claims out of publication prose.
-3. Allocate the next version with `scripts/next_version.py`. Create a fresh `v0.N` only.
+3. Run the New Book A4 Routing Contract and allocate the next version with `scripts/next_version.py`. Create a fresh `v0.N` only.
 4. Write `production-plan.json` with in-scope deliverables, acceptance checks, and the dynamic build Steps.
 5. Create, run, test, and correct the planned deliverables before marking their artifacts `verified`.
 6. Write `<title>.md`, `manuscript.json`, and `asset-manifest.json` using `references/manuscript-schema.md` and `references/asset-policy.md`.
-7. Preserve this fixed editorial order:
+7. For a new A4 package, write `template_version: 3`, `editorial_quality_version: 3`, flexible `practice_blocks`, and `editorial_review` before requesting images. Read `references/master-editorial-profile.md` and confirm the V3 preflight passes before calling image generation.
+8. Preserve this fixed editorial order:
 
 ```text
 챕터 제목
@@ -142,11 +157,21 @@ Step 1 ... Step N
 필요한 마지막 주의 문구
 ```
 
-8. Keep the four-row quick-reference table, preview/QR panel, Step image positions, real-world-use image, tip box, and final caution area. Do not add unrelated editorial sections.
+9. Keep the four-row quick-reference table, preview/QR panel, Step image positions, inter-step tip boxes, and final caution area. Add a real-world-use image only when it is supported by the material and useful to the section. Do not add unrelated editorial sections.
 
 ## Required AI Image Workflow
 
-This section applies only to `book_a4`. Every manuscript version requires one preview image, one image per Step, and one real-world-use image. The total is `len(steps) + 2`.
+This section applies only to `book_a4`. Historical V1 packages require one preview image, one image per Step, and one real-world-use image: `len(steps) + 2`. Newly synthesized V2 packages require one preview image, one preparation image, and one image per Step; a real-world-use image is added only when the source material supports a useful field application visual.
+
+## Book A4 Template Version 2
+
+Every newly synthesized A4 manuscript uses `template_version: 3`. This branch preserves historical V1/V2 `book_a4` packages and does not alter the adaptive blog profile.
+
+V2 keeps the chapter title, `[이번 챕터에서는]`, `[한눈에 보기]`, `[미리 보기]`, `[실습하기]`, `[실전 활용하기]`, and optional caution areas. Inside `[실습하기]`, store an ordered `practice_blocks` list in the form `step, tip, step, tip, ... step`. Step count remains dynamic, and N Steps require exactly N-1 tips; no tip follows the final Step.
+
+Each V2 Step body contains exactly two or three sentences. The content must show the reader preparing or requesting work, the relevant AI agent creating or changing the technology, and the reader checking the observable completion condition. A Step that only uses an already completed service belongs in `[실전 활용하기]`.
+
+V2 historical packages retain their original preview/preparation/Step visual contract. V3 requires topic-specific wide Codex-generated explanatory images with a visual brief, clean composition, immediate captions, and no automatically added numbers, arrows, red boxes, borders, or other instructional overlays.
 
 1. Finalize the manuscript Step meanings before generating images.
 2. For every slot, use the `imagegen` skill and Codex built-in image generation. Do not use an external image API or request a user API key.
@@ -261,6 +286,10 @@ scripts/delete_conversation_bundle.py
 - `이 프로젝트 원고화 중지해줘`: change only the named registry entry to `paused`.
 
 ## Safety
+
+## Master Editorial Quality V3 Override
+
+For new synthesis, this section overrides historical V2-only wording above. Read `references/master-editorial-profile.md` before creating a Book or Blog V3 package. New books use `template_version: 3` and `editorial_quality_version: 3`; new blogs use `editorial_quality_version: 3`. V3 Step count and tip placement follow the real build evidence, Step bodies contain 2-4 sentences, and sufficiently detailed tips contain 3-5 sentences. Every new V3 visual is a topic-specific Codex-generated `generated_scene` with a `visual_brief`; it must be wide, plausible, print-legible, and free of `red_box`, `numbered_callout`, `arrow`, borders, generic AI motifs, and invented unreadable interface text. A score below 85 or any hard failure stops rendering and publication. V1/V2 and historical blog contracts remain available only when explicitly selected or when opening an existing immutable version.
 
 - Never expose student names, contact details, API keys, tokens, private school records, or unrelated desktop content.
 - Never scan all Codex conversations.

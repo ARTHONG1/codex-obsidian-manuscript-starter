@@ -262,9 +262,18 @@ def _validate_book_a4_publication(version_dir: Path, files: list[Path], vault_ro
         if validated_outputs.get(output_name) != actual_digest:
             raise ValueError(f"book_a4 validated output does not match: {output_name}")
 
-    visual_entries = [manuscript.get("preview", {}).get("visual")]
-    visual_entries.extend(step.get("visual") for step in manuscript.get("steps", []) if isinstance(step, dict))
-    visual_entries.append(manuscript.get("real_world_use_visual"))
+    if manuscript.get("template_version") in (2, 3):
+        visual_entries = [manuscript.get("preview", {}).get("visual"), manuscript.get("practice_preparation", {}).get("visual")]
+        visual_entries.extend(
+            block.get("visual") for block in manuscript.get("practice_blocks", [])
+            if isinstance(block, dict) and block.get("type") == "step"
+        )
+        if manuscript.get("real_world_use_visual"):
+            visual_entries.append(manuscript.get("real_world_use_visual"))
+    else:
+        visual_entries = [manuscript.get("preview", {}).get("visual")]
+        visual_entries.extend(step.get("visual") for step in manuscript.get("steps", []) if isinstance(step, dict))
+        visual_entries.append(manuscript.get("real_world_use_visual"))
     visual_ids: set[str] = set()
     visual_paths: dict[str, str] = {}
     for visual in visual_entries:

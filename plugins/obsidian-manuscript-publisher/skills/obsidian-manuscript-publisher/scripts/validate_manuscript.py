@@ -9,7 +9,16 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 from PIL import Image as PillowImage
+
+try:
+    from editorial_quality import (compute_editorial_score, validate_master_voice,
+                                   validate_sentence_range, validate_visual_brief)
+except ImportError:  # pragma: no cover
+    from editorial_quality import (compute_editorial_score, validate_master_voice,
+                                   validate_sentence_range, validate_visual_brief)
 
 
 KNOWN_EVIDENCE_KINDS = {
@@ -153,11 +162,14 @@ def expected_caption_prefix(part: str, chapter: str, sequence: int) -> str:
     return f"그림 {part_match.group(0)}-{chapter_match.group(0).zfill(2)}-{sequence}. "
 
 
-def validate_step(step: dict, index: int) -> list[dict]:
+def validate_step(step: dict, index: int, *, allow_action_title: bool = False) -> list[dict]:
     """Validate step-only rules; asset-dependent rules are handled separately."""
     normalized = normalize_step(step)
     errors: list[dict] = []
-    errors.extend(validate_step_title(normalized["title"], index))
+    if not allow_action_title:
+        errors.extend(validate_step_title(normalized["title"], index))
+    elif not str(normalized["title"] or "").strip():
+        errors.append(_issue("step_title_required", step=index))
     if normalized["step_kind"] != "build":
         errors.append(_issue("step_kind_required", step=index))
     if not str(normalized["build_action"] or "").strip():
@@ -256,6 +268,188 @@ def required_visuals(manuscript: dict) -> list[tuple[str, int | None, dict]]:
     return visuals
 
 
+def _sentence_count(value: object) -> int:
+    """Count editorial sentences without splitting URLs, paths, or decimals."""
+    if isinstance(value, list):
+        return len([str(item).strip() for item in value if str(item).strip()])
+    text = str(value or "").strip()
+    if not text:
+        return 0
+    normalized = re.sub(r"https?://\S+", "", text)
+    normalized = re.sub(r"(?<!\d)\d+\.\d+(?!\d)", "", normalized)
+    normalized = re.sub(r"[A-Za-z]:\\[^\s]+", "", normalized)
+    return len([part for part in re.split(r"(?<=[.!?。！？])\s+", normalized) if part.strip()])
+
+
+def _v2_visuals(manuscript: dict) -> list[tuple[str, int | None, dict]]:
+    visuals = [("preview", None, manuscript.get("preview", {}).get("visual") or {})]
+    visuals.append(("preparation", None, manuscript.get("practice_preparation", {}).get("visual") or {}))
+    for block in manuscript.get("practice_blocks", []):
+        if isinstance(block, dict) and block.get("type") == "step":
+            visuals.append(("step", int(block.get("number", 0) or 0), block.get("visual") or {}))
+    optional = manuscript.get("real_world_use_visual")
+    if isinstance(optional, dict) and optional:
+        visuals.append(("real_world_use", None, optional))
+    return visuals
+
+
+def _validate_v2_package(manuscript: dict, manifest: dict, version_dir: Path) -> dict:
+    errors: list[dict] = []
+    required = ("output_profile", "template_version", "source_markdown", "part", "chapter", "title", "chapter_intro", "quick_reference", "preview", "practice_preparation", "practice_blocks", "real_world_use", "verification_note")
+    for field in required:
+        if field not in manuscript:
+            errors.append(_issue(f"v2_{field}_required"))
+    if manuscript.get("output_profile") != "book_a4":
+        errors.append(_issue("v2_output_profile_required"))
+    if manuscript.get("template_version") != 2:
+        errors.append(_issue("v2_template_version_required"))
+    if not isinstance(manuscript.get("practice_blocks"), list) or not manuscript.get("practice_blocks"):
+        errors.append(_issue("v2_practice_blocks_required"))
+        return {"status": "invalid", "errors": _sort_issues(errors), "warnings": []}
+
+    blocks = manuscript["practice_blocks"]
+    steps = [block for block in blocks if isinstance(block, dict) and block.get("type") == "step"]
+    expected_number = 1
+    for position, block in enumerate(blocks):
+        if not isinstance(block, dict):
+            errors.append(_issue("v2_block_object_required"))
+            continue
+        block_type = block.get("type")
+        if block_type == "step":
+            number = block.get("number")
+            if number != expected_number:
+                errors.append(_issue("v2_step_number_sequence", step=expected_number))
+            if expected_number > 1 and position and isinstance(blocks[position - 1], dict) and blocks[position - 1].get("type") == "step":
+                errors.append(_issue("inter_step_tip_required", step=expected_number - 1))
+            errors.extend(validate_step(block, expected_number, allow_action_title=True))
+            body = block.get("body")
+            if _sentence_count(body) not in {2, 3}:
+                errors.append(_issue("step_body_sentence_count", step=expected_number))
+            expected_number += 1
+        elif block_type == "tip":
+            previous = blocks[position - 1] if position else {}
+            next_block = blocks[position + 1] if position + 1 < len(blocks) else {}
+            if not isinstance(previous, dict) or previous.get("type") != "step" or not isinstance(next_block, dict) or next_block.get("type") != "step":
+                errors.append(_issue("inter_step_tip_required"))
+            if block.get("after_step") != (previous.get("number") if isinstance(previous, dict) else None):
+                errors.append(_issue("v2_tip_step_reference_invalid"))
+            if _sentence_count(block.get("body")) not in {2, 3}:
+                errors.append(_issue("v2_tip_body_sentence_count"))
+        else:
+            errors.append(_issue("v2_unknown_practice_block"))
+
+    if steps and len([block for block in blocks if isinstance(block, dict) and block.get("type") == "tip"]) != len(steps) - 1:
+        errors.append(_issue("inter_step_tip_count_invalid"))
+    if blocks and isinstance(blocks[-1], dict) and blocks[-1].get("type") != "step":
+        errors.append(_issue("v2_final_block_must_be_step"))
+
+    asset_list = manifest.get("assets", []) if isinstance(manifest, dict) else []
+    if not isinstance(asset_list, list):
+        errors.append(_issue("asset_manifest_list_required"))
+        asset_list = []
+    assets = {asset.get("asset_id"): asset for asset in asset_list if isinstance(asset, dict)}
+    seen_ids: set[str] = set()
+    for asset in asset_list:
+        if not isinstance(asset, dict):
+            errors.append(_issue("asset_record_object_required"))
+            continue
+        asset_id = str(asset.get("asset_id", ""))
+        if not asset_id or asset_id in seen_ids:
+            errors.append(_issue("duplicate_asset_id", asset_id=asset_id))
+        seen_ids.add(asset_id)
+        errors.extend(validate_asset(asset, version_dir))
+
+    visual_ids: set[str] = set()
+    for sequence, (slot, step_number, visual) in enumerate(_v2_visuals(manuscript), start=1):
+        if not visual:
+            errors.append(_issue(f"v2_{slot}_visual_required", step=step_number))
+            continue
+        asset_id = str(visual.get("asset_id", ""))
+        if not asset_id or asset_id in visual_ids:
+            errors.append(_issue("v2_visual_asset_id_invalid", step=step_number, asset_id=asset_id))
+            continue
+        visual_ids.add(asset_id)
+        asset = assets.get(asset_id)
+        if asset is None:
+            errors.append(_issue("required_asset_missing", step=step_number, asset_id=asset_id))
+            continue
+        errors.extend(validate_visual_metadata(visual, step=step_number, asset_id=asset_id))
+        if visual.get("method") != asset.get("method") or visual.get("evidence_kind") != asset.get("evidence_kind") or visual.get("visual_kind") != asset.get("visual_kind"):
+            errors.append(_issue("v2_visual_manifest_mismatch", step=step_number, asset_id=asset_id))
+        expected_prefix = expected_caption_prefix(manuscript.get("part", ""), manuscript.get("chapter", ""), sequence)
+        caption = str(visual.get("caption", "")).strip()
+        if not expected_prefix or not caption.startswith(expected_prefix) or len(caption) <= len(expected_prefix):
+            errors.append(_issue("figure_caption_format_required", step=step_number, asset_id=asset_id))
+    if visual_ids != set(assets):
+        errors.append(_issue("v2_visual_manifest_set_mismatch"))
+    return {"status": "invalid" if errors else "ready", "errors": _sort_issues(errors), "warnings": []}
+
+
+def _validate_v3_package(manuscript: dict, manifest: dict, version_dir: Path) -> dict:
+    """Validate the adaptive master-quality contract without changing V1/V2."""
+    errors: list[dict] = []
+    for field in ("output_profile", "template_version", "editorial_quality_version", "title", "chapter_intro", "practice_blocks", "editorial_review"):
+        if field not in manuscript:
+            errors.append(_issue(f"v3_{field}_required"))
+    if manuscript.get("output_profile") != "book_a4" or manuscript.get("template_version") != 3 or manuscript.get("editorial_quality_version") != 3:
+        errors.append(_issue("v3_editorial_profile_required"))
+    errors.extend(validate_sentence_range(manuscript.get("chapter_intro"), 2, 3, "chapter_intro_sentence_range_invalid"))
+    errors.extend(validate_master_voice(manuscript.get("chapter_intro", "")))
+    asset_list = manifest.get("assets") if isinstance(manifest, dict) else None
+    if not isinstance(asset_list, list):
+        errors.append(_issue("asset_manifest_list_required")); asset_list = []
+    assets = {str(item.get("asset_id")): item for item in asset_list if isinstance(item, dict)}
+    for asset in asset_list:
+        if isinstance(asset, dict):
+            errors.extend(validate_asset(asset, version_dir))
+            prompt = str(asset.get("prompt", "")).lower()
+            if any(token in prompt for token in ("add red box", "add numbered callout", "add arrow")):
+                errors.append(_issue("instructional_overlay_forbidden", asset_id=str(asset.get("asset_id", ""))))
+    blocks = manuscript.get("practice_blocks")
+    if not isinstance(blocks, list) or not blocks:
+        return {"status": "invalid", "errors": _sort_issues(errors + [_issue("v3_practice_blocks_required")]), "warnings": []}
+    step_numbers = []
+    covered: set[int] = set()
+    for block in blocks:
+        if not isinstance(block, dict):
+            errors.append(_issue("v3_block_object_required")); continue
+        if block.get("type") == "step":
+            number = block.get("number")
+            step_numbers.append(number)
+            if number != len(step_numbers):
+                errors.append(_issue("v3_step_number_sequence", step=len(step_numbers)))
+            errors.extend(validate_step(block, len(step_numbers), allow_action_title=True))
+            errors.extend(validate_sentence_range(block.get("body"), 2, 4, "step_sentence_range_invalid"))
+            visual = block.get("visual") or {}
+            if visual:
+                aid = str(visual.get("asset_id", "")); covered.add(number)
+                errors.extend(validate_visual_brief(visual.get("visual_brief"), asset_id=aid))
+                if aid not in assets:
+                    errors.append(_issue("required_asset_missing", step=number, asset_id=aid))
+                else:
+                    errors.extend(validate_visual_metadata(visual, step=number, asset_id=aid))
+        elif block.get("type") == "tip":
+            errors.extend(validate_sentence_range(block.get("body"), 3, 5, "tip_sentence_range_invalid"))
+        else:
+            errors.append(_issue("v3_unknown_practice_block"))
+    if step_numbers != list(range(1, len(step_numbers) + 1)):
+        errors.append(_issue("v3_step_number_sequence"))
+    for num in step_numbers:
+        if num not in covered:
+            errors.append(_issue("step_visual_coverage_missing", step=num))
+    preview_visual = (manuscript.get("preview") or {}).get("visual") if isinstance(manuscript.get("preview"), dict) else None
+    if not isinstance(preview_visual, dict):
+        errors.append(_issue("v3_preview_visual_required"))
+    else:
+        aid = str(preview_visual.get("asset_id", ""))
+        errors.extend(validate_visual_brief(preview_visual.get("visual_brief"), asset_id=aid))
+        if aid not in assets:
+            errors.append(_issue("required_asset_missing", asset_id=aid))
+    score, score_errors = compute_editorial_score(manuscript.get("editorial_review"))
+    errors.extend(score_errors)
+    return {"status": "invalid" if errors else "ready", "errors": _sort_issues(errors), "warnings": [], "editorial_score": score}
+
+
 def validate_package(manuscript: dict, manifest: dict, version_dir: Path) -> dict:
     """Return a deterministic validation result for a manuscript and asset manifest."""
     errors: list[dict] = []
@@ -277,6 +471,10 @@ def validate_package(manuscript: dict, manifest: dict, version_dir: Path) -> dic
     }
     if not isinstance(manuscript, dict):
         return {"status": "invalid", "errors": [{"code": "top_level_object_required"}], "warnings": []}
+    if manuscript.get("template_version") == 3:
+        return _validate_v3_package(manuscript, manifest, version_dir)
+    if manuscript.get("template_version") == 2:
+        return _validate_v2_package(manuscript, manifest, version_dir)
     for field, expected_type in required_types.items():
         if field not in manuscript:
             errors.append(_issue(f"top_level_{field}_required"))

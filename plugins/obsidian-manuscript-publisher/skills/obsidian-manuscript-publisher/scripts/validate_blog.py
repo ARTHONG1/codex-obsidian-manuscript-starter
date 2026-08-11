@@ -11,8 +11,15 @@ import sys
 import tempfile
 from pathlib import Path, PurePosixPath
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 from PIL import Image as PillowImage
 from PIL import ImageOps
+
+try:
+    from editorial_quality import compute_editorial_score, validate_master_voice, validate_visual_brief
+except ImportError:  # pragma: no cover
+    from editorial_quality import compute_editorial_score, validate_master_voice, validate_visual_brief
 
 
 OUTPUT_PROFILE = "adaptive_blog"
@@ -564,11 +571,23 @@ def validate_package(blog: object, manifest: object, version_dir: Path) -> dict:
         return {"status": "invalid", "errors": _sort_issues(root_errors), "warnings": []}
 
     errors = []
+    if isinstance(blog, dict) and blog.get("editorial_quality_version") == 3:
+        if any(asset.get("method") != "generated_scene" for asset in (manifest.get("assets") or []) if isinstance(asset, dict)):
+            errors.append(_issue("v3_generated_scene_required"))
+        errors.extend(validate_master_voice(_public_text(blog)))
+        score, score_errors = compute_editorial_score(blog.get("editorial_review"))
+        errors.extend(score_errors)
+        for _, visual in _visuals(blog):
+            if isinstance(visual, dict):
+                errors.extend(validate_visual_brief(visual.get("visual_brief"), asset_id=str(visual.get("asset_id", ""))))
     errors.extend(_validate_structure(blog))
     errors.extend(_validate_editorial(blog))
     errors.extend(_validate_visuals(blog, manifest, version_dir))
     errors = _sort_issues(errors)
-    return {"status": "ready" if not errors else "invalid", "errors": errors, "warnings": []}
+    result = {"status": "ready" if not errors else "invalid", "errors": errors, "warnings": []}
+    if isinstance(blog, dict) and blog.get("editorial_quality_version") == 3:
+        result["editorial_score"] = score
+    return result
 
 
 def _atomic_write_report(report_path: Path, result: dict) -> None:
