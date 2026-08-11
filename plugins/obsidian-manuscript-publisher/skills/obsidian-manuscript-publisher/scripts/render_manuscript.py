@@ -69,6 +69,15 @@ def interaction_text(step: dict, label: str) -> str:
 
 
 def validate(data: dict) -> None:
+    if data.get("template_version") == 2:
+        if not isinstance(data.get("practice_blocks"), list) or not data["practice_blocks"]:
+            raise ValueError("V2 practice_blocks must be a non-empty list")
+        for block in data["practice_blocks"]:
+            if block.get("type") == "step":
+                body = block.get("body")
+                if not isinstance(body, list) or len(body) not in {2, 3}:
+                    raise ValueError("V2 Step body must contain two or three sentences")
+        return
     required = ["part", "chapter", "title", "chapter_intro", "quick_reference", "preview", "steps", "real_world_use", "tip", "verification_note"]
     missing = [name for name in required if not data.get(name)]
     if missing:
@@ -222,6 +231,15 @@ def required_image_path(item: dict, json_path: Path, label: str) -> Path:
 
 
 def validate_required_visuals(data: dict, json_path: Path) -> None:
+    if data.get("template_version") == 2:
+        required_image_path(data["preview"], json_path, "preview")
+        required_image_path(data["practice_preparation"], json_path, "preparation")
+        for block in data["practice_blocks"]:
+            if block.get("type") == "step":
+                required_image_path(block, json_path, f"Step {block.get('number')}")
+        if data.get("real_world_use_visual"):
+            required_image_path(data["real_world_use_visual"], json_path, "real-world-use")
+        return
     required_image_path(data["preview"], json_path, "preview")
     for index, step in enumerate(data["steps"], start=1):
         required_image_path(step, json_path, f"Step {index}")
@@ -236,7 +254,67 @@ def visual_html(item: dict, json_path: Path, output_directory: Path, label: str)
     <figcaption>{text(caption)}</figcaption></figure>'''
 
 
+def _v2_body(item: dict) -> str:
+    body = item.get("body", [])
+    if isinstance(body, list):
+        return " ".join(str(sentence).strip() for sentence in body if str(sentence).strip())
+    return str(body or "").strip()
+
+
+def render_v2_html(data: dict, json_path: Path, output_directory: Path) -> str:
+    reference = "".join(
+        f"<tr><th>{text(label)}</th><td>{text(value)}</td></tr>"
+        for label, value in data["quick_reference"].items()
+    )
+    blocks: list[str] = []
+    for block in data["practice_blocks"]:
+        if block.get("type") == "step":
+            index = block["number"]
+            blocks.append(
+                f'<section class="step"><h2>Step {index}. {text(block.get("title"))}</h2>'
+                f'<p>{text(_v2_body(block))}</p>{visual_html(block, json_path, output_directory, f"Step {index} 이미지")}</section>'
+            )
+        elif block.get("type") == "tip":
+            tip_text = _v2_body(block)
+            blocks.append(f'<aside class="tip"><div class="label">[꿀팁 더하기]</div><p>{text(tip_text)}</p></aside>')
+    preview = data["preview"]
+    preparation = data["practice_preparation"]
+    optional_real = visual_html(data["real_world_use_visual"], json_path, output_directory, "실전 활용하기 이미지") if data.get("real_world_use_visual") else ""
+    return f'''<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{text(data["title"])}</title>
+<style>
+@page {{ size:A4 portrait; margin:16mm 17mm 18mm; }} * {{ box-sizing:border-box; }} body {{ font-family:'Malgun Gothic',sans-serif; color:#222; font-size:10.5pt; line-height:1.75; margin:0; }} h1 {{ font-size:22pt; margin:0 0 15mm; }} h2 {{ font-size:13pt; margin:0 0 4mm; }} .label {{ display:inline-block; background:#b9f63a; border:1px solid #5d8420; font-weight:700; padding:1mm 3mm; margin:0 0 4mm; }} .box {{ border:1px solid #444; padding:5mm; margin-bottom:8mm; }} table {{ border-collapse:collapse; width:100%; margin-bottom:8mm; }} th,td {{ border:1px solid #444; padding:2.5mm 3mm; vertical-align:top; }} th {{ width:25%; background:#fafafa; }} .preview {{ border:1px solid #444; padding:4mm; margin-bottom:8mm; }} .step {{ break-inside:avoid; margin:0 0 8mm; }} .tip {{ break-inside:avoid; border:1px solid #444; background:#fafafa; padding:4mm; margin:0 0 8mm; }} .tip .label {{ margin-bottom:2mm; }} .visual-unit {{ break-inside:avoid; margin:3mm auto 4mm; }} .visual-unit img {{ display:block; width:100%; max-width:100%; height:auto; max-height:92mm; object-fit:contain; margin:0 auto; }} .visual-unit figcaption {{ color:#666; font-size:8.5pt; margin-top:1mm; }}
+</style></head><body>
+<h1>[{text(data["part"])} - {text(data["chapter"])}] {text(data["title"])}</h1>
+<div class="label">[이번 챕터에서는]</div><div class="box">{text(data["chapter_intro"])}</div>
+<div class="label">[한눈에 보기]</div><table>{reference}</table>
+<div class="label">[미리 보기]</div><div class="preview"><strong>{text(preview.get("result_title"))}</strong><p>{text(preview.get("result_summary"))}</p>{visual_html(preview, json_path, output_directory, "결과물 이미지")}</div>
+<div class="label">[실습 사전 준비]</div><p>{text(data["practice_preparation"].get("body"))}</p>{visual_html(preparation, json_path, output_directory, "실습 사전 준비 이미지")}
+<div class="label">[실습하기]</div>{''.join(blocks)}
+<div class="label">[실전 활용하기]</div><p>{text(data["real_world_use"])}</p>{optional_real}
+</body></html>'''
+
+
+def _v3_render_data(data: dict) -> dict:
+    """Normalize V3's flexible blocks for the stable A4 renderer."""
+    normalized = dict(data)
+    normalized["template_version"] = 2
+    normalized["practice_preparation"] = data.get("practice_preparation") or {"body": data.get("preparation", ""), "visual": data.get("preparation_visual", {})}
+    normalized["real_world_use_visual"] = data.get("real_world_use_visual") or {}
+    blocks = []
+    for block in data.get("practice_blocks", []):
+        item = dict(block)
+        item["type"] = item.get("type") or item.get("kind")
+        blocks.append(item)
+    normalized["practice_blocks"] = blocks
+    return normalized
+
+
 def render_html(data: dict, json_path: Path, output_directory: Path) -> str:
+    if data.get("template_version") == 3:
+        return render_v2_html(_v3_render_data(data), json_path, output_directory)
+    if data.get("template_version") == 2:
+        return render_v2_html(data, json_path, output_directory)
     reference = "".join(
         f"<tr><th>{text(label)}</th><td>{text(value)}</td></tr>"
         for label, value in data["quick_reference"].items()
@@ -284,6 +362,55 @@ def styles() -> dict:
     }
 
 
+def render_v2_pdf(data: dict, json_path: Path, output_path: Path) -> None:
+    st = styles()
+    doc = SimpleDocTemplate(str(output_path), pagesize=A4, leftMargin=17 * mm, rightMargin=17 * mm, topMargin=16 * mm, bottomMargin=18 * mm)
+    story = [Paragraph(f"[{text(data['part'])} - {text(data['chapter'])}] {text(data['title'])}", st["title"])]
+
+    def add_label(value: str) -> None:
+        block = Table([[Paragraph(f"[{text(value)}]", st["label"])]], colWidths=[42 * mm])
+        block.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), GREEN), ("BOX", (0, 0), (-1, -1), 0.7, colors.HexColor("#5d8420")), ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4)]))
+        story.extend([block, Spacer(1, 3 * mm)])
+
+    add_label("이번 챕터에서는")
+    intro = Table([[Paragraph(text(data["chapter_intro"]), st["body"])]], colWidths=[176 * mm])
+    intro.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.8, INK), ("PADDING", (0, 0), (-1, -1), 10)]))
+    story.extend([intro, Spacer(1, 7 * mm)])
+    add_label("한눈에 보기")
+    rows = [[Paragraph(text(key), st["body"]), Paragraph(text(value), st["body"])] for key, value in data["quick_reference"].items()]
+    quick = Table(rows, colWidths=[43 * mm, 133 * mm])
+    quick.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.7, INK), ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#FAFAFA")), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("PADDING", (0, 0), (-1, -1), 6)]))
+    story.extend([quick, Spacer(1, 7 * mm)])
+    add_label("미리 보기")
+    preview = data["preview"]
+    story.append(KeepTogether([Paragraph(text(preview.get("result_title")), st["body"]), Paragraph(text(preview.get("result_summary")), st["small"]), image_flowable(preview, json_path, "결과물 이미지", 176 * mm, 92 * mm), Paragraph(text(visual_fields(preview)[1]), st["small"]), Spacer(1, 6 * mm)]))
+    add_label("실습 사전 준비")
+    preparation = data["practice_preparation"]
+    story.append(KeepTogether([Paragraph(text(preparation.get("body")), st["body"]), image_flowable(preparation, json_path, "실습 사전 준비 이미지"), Paragraph(text(visual_fields(preparation)[1]), st["small"]), Spacer(1, 6 * mm)]))
+    add_label("실습하기")
+    for block in data["practice_blocks"]:
+        if block.get("type") == "step":
+            story.append(KeepTogether([
+                Paragraph(f"Step {block['number']}. {text(block.get('title'))}", st["step"]),
+                Paragraph(text(_v2_body(block)), st["body"]),
+                image_flowable(block, json_path, f"Step {block['number']} 이미지"),
+                Paragraph(text(visual_fields(block)[1]), st["small"]),
+                Spacer(1, 4 * mm),
+            ]))
+        else:
+            tip_label = Table([[Paragraph("[꿀팁 더하기]", st["label"])]], colWidths=[42 * mm])
+            tip_label.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), GREEN), ("BOX", (0, 0), (-1, -1), 0.7, colors.HexColor("#5d8420")), ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4)]))
+            tip = Table([[Paragraph(text(_v2_body(block)), st["body"])]], colWidths=[176 * mm])
+            tip.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.8, INK), ("BACKGROUND", (0, 0), (-1, -1), GRAY), ("PADDING", (0, 0), (-1, -1), 10)]))
+            story.append(KeepTogether([tip_label, Spacer(1, 2 * mm), tip, Spacer(1, 5 * mm)]))
+    add_label("실전 활용하기")
+    story.append(Paragraph(text(data["real_world_use"]), st["body"]))
+    if data.get("real_world_use_visual"):
+        visual = data["real_world_use_visual"]
+        story.extend([image_flowable(visual, json_path, "실전 활용하기 이미지"), Paragraph(text(visual_fields(visual)[1]), st["small"])])
+    doc.build(story, canvasmaker=_DeterministicCanvas)
+
+
 def image_flowable(item: dict, json_path: Path, label: str, width: float = 176 * mm, max_height: float = 99 * mm):
     candidate = required_image_path(item, json_path, label)
     image = Image(str(candidate))
@@ -301,6 +428,10 @@ def qr_flowable(url: str):
 
 
 def render_pdf(data: dict, json_path: Path, output_path: Path) -> None:
+    if data.get("template_version") == 3:
+        return render_v2_pdf(_v3_render_data(data), json_path, output_path)
+    if data.get("template_version") == 2:
+        return render_v2_pdf(data, json_path, output_path)
     st = styles()
     doc = SimpleDocTemplate(str(output_path), pagesize=A4, leftMargin=17 * mm, rightMargin=17 * mm, topMargin=16 * mm, bottomMargin=18 * mm)
     story = [Paragraph(f"[{text(data['part'])} - {text(data['chapter'])}] {text(data['title'])}", st["title"])]

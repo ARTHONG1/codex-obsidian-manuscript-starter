@@ -230,7 +230,10 @@ function Test-LocalRestRoundTrip {
     param([Parameter(Mandatory = $true)] [string]$DataPath)
 
     $connection = Get-LocalRestConnection -DataPath $DataPath
-    $name = ".codex-install-health-" + [guid]::NewGuid().ToString("N") + ".md"
+    # Local REST API 5.x rejects hidden dot-prefixed vault paths with 404 even though
+    # ordinary vault paths are writable. Keep the health note temporary and unique,
+    # but use a normal filename so the diagnostic tests the real write/read/delete path.
+    $name = "Codex-install-health-" + [guid]::NewGuid().ToString("N") + ".md"
     $relativePath = "_system/$name"
     $uri = $connection.BaseUrl + "/vault/" + $relativePath
     $payload = [Text.Encoding]::UTF8.GetBytes("# Codex connection check`n`n" + [guid]::NewGuid().ToString("N") + "`n")

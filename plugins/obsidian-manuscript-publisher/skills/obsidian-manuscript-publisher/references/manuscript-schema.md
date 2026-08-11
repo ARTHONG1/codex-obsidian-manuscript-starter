@@ -1,6 +1,12 @@
 # Manuscript JSON Contract
 
-`manuscript.json` is publication-ready only when every required field below is present and every Step follows the build contract.
+`manuscript.json` is publication-ready only when the selected template contract is explicit and every Step follows that contract. New `book_a4` synthesis MUST use V3. The V1 and V2 contracts below are retained only for historical packages.
+
+## Book A4 V3 Contract
+
+New packages use `template_version: 3` and `editorial_quality_version: 3`. The fixed outer sections remain the chapter title, `[이번 챕터에서는]`, `[한눈에 보기]`, `[미리 보기]`, `[실습하기]`, `[실전 활용하기]`, and `[꿀팁 더하기]`; the number of `practice_blocks` follows the actual build workflow. Each step has sequential numbering, build metadata, a 2-4 sentence body, a completion check, a user/tool interaction, and a topic-specific generated visual. Tips are evidence-driven and may be omitted or repeated as the subject requires; a detailed tip uses 3-5 sentences. `editorial_review` contains the seven weighted quality categories and hard-failure attestations. Every V3 visual brief forbids `red_box`, `numbered_callout`, and `arrow`.
+
+## Legacy Book A4 V1 Contract
 
 ```json
 {
@@ -131,3 +137,21 @@ After fresh validation, successful HTML/PDF rendering, and the independent Vault
 - `_meta/export-manifest.json` contains non-secret hashes and independent Vault publication status. It never contains credentials or private source attachments.
 
 The project directory comes from the registry `destination_root`. `00 최신본` changes only after complete staged hash verification; older immutable versions remain under `99 이전버전/v0.N`.
+
+## Template Version 2
+
+Historical V2 manuscripts set `template_version: 2` while retaining `output_profile: book_a4`. V2 uses `practice_preparation` and ordered `practice_blocks` rather than the legacy top-level `steps` and final `tip` fields:
+
+```json
+{
+  "template_version": 2,
+  "practice_preparation": {"title": "실습 사전 준비", "body": "", "visual": {}},
+  "practice_blocks": [
+    {"type": "step", "number": 1, "title": "", "body": ["", ""], "interaction": {}, "artifact": {}, "visual": {}},
+    {"type": "tip", "after_step": 1, "title": "", "body": ["", ""]},
+    {"type": "step", "number": 2, "title": "", "body": ["", "", ""], "interaction": {}, "artifact": {}, "visual": {}}
+  ]
+}
+```
+
+The sequence must alternate Step and tip, begin and end with a Step, and contain exactly N-1 tips for N Steps. Each Step body and each tip body contains two or three non-empty sentences. V2 requires preview, preparation, and Step visuals; a real-world-use visual is optional. Historical packages without `template_version: 2` continue to use the legacy contract above.

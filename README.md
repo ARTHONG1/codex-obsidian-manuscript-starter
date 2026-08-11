@@ -142,3 +142,27 @@ AI가 만든 이미지는 실제 화면이라고 속이지 않습니다. 실제 
 ## 라이선스
 
 [MIT License](LICENSE) · [타사 고지](THIRD_PARTY_NOTICES.md) · [보안 정책](SECURITY.md)
+
+## 개발·검증
+
+저장소를 수정하는 개발자는 PowerShell에서 다음 검증 명령을 실행합니다.
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+python -m unittest discover -s tests -p "test*.py"
+python -m unittest discover -s tests -t tests
+Invoke-Pester -Script .\tests\InstallerContract.Tests.ps1
+Invoke-Pester -Script .\tests\SecretScan.Tests.ps1
+```
+
+## Master Editorial Quality V3
+
+New book packages use the V3 editorial profile. Step count follows the real build process for a Skill, plugin, MCP, AI agent, automation, web app, or document generator; it is not a fixed usage tutorial. Step prose is 2-4 sentences, tips are evidence-driven, and the package is blocked below the 85-point quality gate.
+
+V3 visuals are Codex built-in `generated_scene` assets: topic-specific, wide, print-legible software screens, work products, workflows, results, or field scenes. The generator must not add red boxes, numbered callouts, arrows, borders, or generic AI decoration.
+
+Example request:
+
+```text
+Create a Master Editorial Quality V3 book from the selected conversation materials. Show the real process of building the technology with Codex or the named tool, choose only the Steps the topic needs, and generate professional wide visuals tied to each artifact. Do not add red boxes, numbered callouts, or arrows.
+```

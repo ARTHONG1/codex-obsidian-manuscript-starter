@@ -47,3 +47,9 @@ At publication, only manifest-listed assets under the version-local `assets/` di
 ## Failure
 
 Revise a failed generation prompt once. A second failure returns `image_generation_failed` and stops Markdown finalization, HTML/PDF rendering, and Vault publication. Never emit a blank panel or partially illustrated manuscript.
+
+## V2 Visual Slots
+
+For `template_version: 2`, required slots are one preview visual, one preparation visual, and one visual for every Step. A real-world-use visual is optional and is included only when it carries evidence for the chapter. The ordered render sequence is preview, preparation, Step 1 through Step N, and optional real-world use.
+
+V2 prompts must request a realistic, restrained software or document scene in a wide landscape composition. Historical V2 packages retain their original metadata. V3 Codex visuals are clean generated scenes: no automatic red boxes, numbered callouts, arrows, borders, or other instructional overlays are added. Long Korean prose must not be delegated to the image model. Preserve the prompt, visual kind, dimensions, hash, privacy state, and quality review in the version-local manifest.

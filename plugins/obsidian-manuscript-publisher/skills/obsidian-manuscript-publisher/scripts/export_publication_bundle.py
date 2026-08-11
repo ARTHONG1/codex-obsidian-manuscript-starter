@@ -427,9 +427,17 @@ def _inspect_book(request: ExportRequest, source: Path, project: str) -> Verifie
     visuals: list[tuple[str, str, dict]] = [
         ("미리보기", "미리보기", metadata.get("preview", {}).get("visual")),
     ]
+    if metadata.get("template_version") in (2, 3):
+        visuals.append(("preparation", "실습 사전 준비", metadata.get("practice_preparation", {}).get("visual")))
+        for block in metadata.get("practice_blocks", []):
+            if isinstance(block, dict) and block.get("type") == "step":
+                index = int(block.get("number", 0))
+                visuals.append((f"Step-{index:02d}", str(block.get("title") or f"Step {index}"), block.get("visual")))
     for index, step in enumerate(metadata.get("steps", []), 1):
         visuals.append((f"Step-{index:02d}", str(step.get("title") or f"Step {index}"), step.get("visual")))
     visuals.append(("실전-활용", "실전 활용하기", metadata.get("real_world_use_visual")))
+    if metadata.get("template_version") in (2, 3) and not metadata.get("real_world_use_visual"):
+        visuals.pop()
     assets: list[AssetExport] = []
     used: set[str] = set()
     for sequence, (filename, insertion, visual) in enumerate(visuals, 1):
@@ -573,6 +581,21 @@ def _book_copy_text(package: VerifiedPackage) -> str:
         _image_marker(1, preview_asset.insertion_label, preview_asset.caption),
         "", "[실습하기]",
     ])
+    if data.get("template_version") in (2, 3):
+        preparation_asset = next(assets)
+        preparation = data["practice_preparation"]
+        lines.extend(["", "[실습 사전 준비]", str(preparation.get("body") or ""), _image_marker(2, preparation_asset.insertion_label, preparation_asset.caption), ""])
+        sequence = 3
+        for block in data["practice_blocks"]:
+            if block.get("type") == "step":
+                asset = next(assets)
+                body = " ".join(str(sentence).strip() for sentence in block.get("body", []))
+                lines.extend([f"Step {block['number']}. {block['title']}", body, _image_marker(sequence, asset.insertion_label, asset.caption), ""])
+                sequence += 1
+            else:
+                lines.extend(["[꿀팁 더하기]", " ".join(str(sentence).strip() for sentence in block.get("body", [])), ""])
+        lines.extend(["[실전 활용하기]", str(data["real_world_use"]), "", f"※ {data['verification_note']}"])
+        return "\n".join(lines).rstrip() + "\n"
     for index, step in enumerate(data["steps"], 1):
         asset = next(assets)
         interaction = step["interaction"]
