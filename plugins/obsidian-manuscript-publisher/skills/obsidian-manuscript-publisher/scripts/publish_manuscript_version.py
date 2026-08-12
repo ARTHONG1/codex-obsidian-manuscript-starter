@@ -18,6 +18,7 @@ from save_via_obsidian_rest import (
     list_vault_directory,
     save_and_verify,
 )
+from book_v3 import BookV3Error, parse_book_v3
 
 
 REPORT_NAME = "publication-validation.json"
@@ -60,9 +61,14 @@ def _unsafe_link_reason(path: Path) -> str | None:
 
 
 def _assert_safe_version_root(version_dir: Path) -> None:
-    reason = _unsafe_link_reason(version_dir)
-    if reason is not None:
-        raise ValueError(f"local_version_dir must not be a {reason}")
+    # Do not resolve first: resolving a junction hides the boundary that must
+    # be rejected before we write a local report or snapshot publication bytes.
+    for ancestor in (version_dir.absolute(), *version_dir.absolute().parents):
+        if not ancestor.exists():
+            continue
+        reason = _unsafe_link_reason(ancestor)
+        if reason is not None:
+            raise ValueError(f"local_version_dir must not be below a {reason}")
 
 
 def _load_blog_renderer():
@@ -262,7 +268,13 @@ def _validate_book_a4_publication(version_dir: Path, files: list[Path], vault_ro
         if validated_outputs.get(output_name) != actual_digest:
             raise ValueError(f"book_a4 validated output does not match: {output_name}")
 
-    if manuscript.get("template_version") in (2, 3):
+    if manuscript.get("template_version") == 3:
+        try:
+            view = parse_book_v3(manuscript)
+        except BookV3Error as error:
+            raise ValueError("book_a4 V3 metadata is invalid") from error
+        visual_entries = [visual for _, visual in view.visuals_in_render_order]
+    elif manuscript.get("template_version") == 2:
         visual_entries = [manuscript.get("preview", {}).get("visual"), manuscript.get("practice_preparation", {}).get("visual")]
         visual_entries.extend(
             block.get("visual") for block in manuscript.get("practice_blocks", [])

@@ -239,10 +239,12 @@ scripts/export_publication_bundle.py
 5. Record `desktop_export_status` from the exporter as `exported`, `history_exported`, `already_exported`, or `export_failed`. Validation, render, or export failure never claims completion and never changes the prior verified desktop `00 최신본`.
 6. Report `vault_publication_status` and `desktop_export_status` as separate lines, followed by the output profile, immutable source version, and final desktop path. Never describe successful desktop export as successful Vault publication.
 
+For the complete maintenance pipeline, use `scripts/finalize_publication.py` so fresh validation, native rendering, the Local REST publication attempt, and Desktop export remain in that order. For repository-to-installed-runtime maintenance, use `scripts/verify_skill_sync.py` only after the release tests pass; compare non-generated files by SHA-256 and preserve the previous installed copy as a backup.
+
 Use these explicit routes:
 
 - `바탕화면 출판함만 다시 만들어줘`: re-export only the exact already-verified version established by the active request. Do not regenerate content or images.
-- `v0.3 검증본을 출판함에 정리해줘`: backfill only the named immutable version.
+- `v0.N 검증본을 출판함에 정리해줘`: backfill only the named immutable version.
 
 For either route, require the exact project, profile, and version. Never scan all historical versions implicitly. If the request is ambiguous, obtain the missing selector before exporting anything.
 

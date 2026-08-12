@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 import argparse
 import re
+import os
+import stat
 import sys
 from pathlib import Path, PurePosixPath
 
@@ -14,6 +16,23 @@ from save_via_obsidian_rest import _relative_path, save_and_verify
 
 
 CONVERSATION_KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def _unsafe_link_reason(path: Path) -> str | None:
+    metadata = os.lstat(path)
+    if stat.S_ISLNK(metadata.st_mode):
+        return "symbolic link"
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    if getattr(metadata, "st_file_attributes", 0) & reparse_flag:
+        return "reparse point"
+    return None
+
+
+def _assert_safe_bundle_tree(bundle: Path) -> None:
+    for path in (bundle, *bundle.rglob("*")):
+        reason = _unsafe_link_reason(path)
+        if reason is not None:
+            raise ValueError(f"conversation bundle must not contain a {reason}")
 
 
 def _turn_markdown(turn: dict) -> str:
@@ -155,6 +174,7 @@ def publish_bundle(
     bundle = bundle.resolve()
     if not bundle.is_dir():
         raise ValueError("bundle must be an existing directory")
+    _assert_safe_bundle_tree(bundle)
     metadata_path = bundle / "metadata.json"
     if not metadata_path.is_file():
         raise ValueError("conversation bundle metadata is required")

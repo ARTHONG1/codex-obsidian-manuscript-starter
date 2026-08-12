@@ -12,6 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from PIL import Image as PillowImage
+from book_v3 import BookV3Error, parse_book_v3
 
 try:
     from editorial_quality import (compute_editorial_score, validate_master_voice,
@@ -386,65 +387,63 @@ def _validate_v2_package(manuscript: dict, manifest: dict, version_dir: Path) ->
 
 
 def _validate_v3_package(manuscript: dict, manifest: dict, version_dir: Path) -> dict:
-    """Validate the adaptive master-quality contract without changing V1/V2."""
+    """Validate the canonical V3 contract without changing V1/V2 behavior."""
     errors: list[dict] = []
-    for field in ("output_profile", "template_version", "editorial_quality_version", "title", "chapter_intro", "practice_blocks", "editorial_review"):
-        if field not in manuscript:
-            errors.append(_issue(f"v3_{field}_required"))
-    if manuscript.get("output_profile") != "book_a4" or manuscript.get("template_version") != 3 or manuscript.get("editorial_quality_version") != 3:
-        errors.append(_issue("v3_editorial_profile_required"))
-    errors.extend(validate_sentence_range(manuscript.get("chapter_intro"), 2, 3, "chapter_intro_sentence_range_invalid"))
-    errors.extend(validate_master_voice(manuscript.get("chapter_intro", "")))
+    try:
+        view = parse_book_v3(manuscript)
+    except BookV3Error:
+        return {"status": "invalid", "errors": [_issue("v3_contract_invalid")], "warnings": []}
+
+    errors.extend(validate_sentence_range(view.chapter_intro, 2, 3, "chapter_intro_sentence_range_invalid"))
+    errors.extend(validate_master_voice(view.chapter_intro))
     asset_list = manifest.get("assets") if isinstance(manifest, dict) else None
     if not isinstance(asset_list, list):
         errors.append(_issue("asset_manifest_list_required")); asset_list = []
     assets = {str(item.get("asset_id")): item for item in asset_list if isinstance(item, dict)}
+    if len(assets) != len(asset_list):
+        errors.append(_issue("duplicate_asset_id"))
     for asset in asset_list:
         if isinstance(asset, dict):
             errors.extend(validate_asset(asset, version_dir))
             prompt = str(asset.get("prompt", "")).lower()
             if any(token in prompt for token in ("add red box", "add numbered callout", "add arrow")):
                 errors.append(_issue("instructional_overlay_forbidden", asset_id=str(asset.get("asset_id", ""))))
-    blocks = manuscript.get("practice_blocks")
-    if not isinstance(blocks, list) or not blocks:
-        return {"status": "invalid", "errors": _sort_issues(errors + [_issue("v3_practice_blocks_required")]), "warnings": []}
-    step_numbers = []
-    covered: set[int] = set()
-    for block in blocks:
-        if not isinstance(block, dict):
-            errors.append(_issue("v3_block_object_required")); continue
-        if block.get("type") == "step":
-            number = block.get("number")
-            step_numbers.append(number)
-            if number != len(step_numbers):
-                errors.append(_issue("v3_step_number_sequence", step=len(step_numbers)))
-            errors.extend(validate_step(block, len(step_numbers), allow_action_title=True))
-            errors.extend(validate_sentence_range(block.get("body"), 2, 4, "step_sentence_range_invalid"))
-            visual = block.get("visual") or {}
-            if visual:
-                aid = str(visual.get("asset_id", "")); covered.add(number)
-                errors.extend(validate_visual_brief(visual.get("visual_brief"), asset_id=aid))
-                if aid not in assets:
-                    errors.append(_issue("required_asset_missing", step=number, asset_id=aid))
-                else:
-                    errors.extend(validate_visual_metadata(visual, step=number, asset_id=aid))
-        elif block.get("type") == "tip":
-            errors.extend(validate_sentence_range(block.get("body"), 3, 5, "tip_sentence_range_invalid"))
+    if view.practice_blocks[0].kind != "step":
+        errors.append(_issue("v3_first_block_must_be_step"))
+    seen_step = False
+    for block in view.practice_blocks:
+        if block.kind == "step":
+            seen_step = True
+            errors.extend(validate_step(block.raw or {}, block.number or 0))
+            errors.extend(validate_sentence_range(block.body, 2, 4, "step_sentence_range_invalid"))
         else:
-            errors.append(_issue("v3_unknown_practice_block"))
-    if step_numbers != list(range(1, len(step_numbers) + 1)):
-        errors.append(_issue("v3_step_number_sequence"))
-    for num in step_numbers:
-        if num not in covered:
-            errors.append(_issue("step_visual_coverage_missing", step=num))
-    preview_visual = (manuscript.get("preview") or {}).get("visual") if isinstance(manuscript.get("preview"), dict) else None
-    if not isinstance(preview_visual, dict):
-        errors.append(_issue("v3_preview_visual_required"))
-    else:
-        aid = str(preview_visual.get("asset_id", ""))
-        errors.extend(validate_visual_brief(preview_visual.get("visual_brief"), asset_id=aid))
-        if aid not in assets:
-            errors.append(_issue("required_asset_missing", asset_id=aid))
+            if not seen_step:
+                errors.append(_issue("v3_tip_requires_preceding_step"))
+            errors.extend(validate_sentence_range(block.body, 3, 5, "tip_sentence_range_invalid"))
+
+    visual_ids: set[str] = set()
+    for sequence, (slot, visual) in enumerate(view.visuals_in_render_order, start=1):
+        asset_id = str(visual.get("asset_id") or "")
+        step_number = next((step.number for step in view.steps if step.visual == visual), None)
+        if not asset_id or asset_id in visual_ids:
+            errors.append(_issue("v3_visual_asset_id_invalid", step=step_number, asset_id=asset_id))
+            continue
+        visual_ids.add(asset_id)
+        asset = assets.get(asset_id)
+        if asset is None:
+            errors.append(_issue("required_asset_missing", step=step_number, asset_id=asset_id))
+            continue
+        errors.extend(validate_visual_brief(visual.get("visual_brief"), asset_id=asset_id))
+        errors.extend(validate_visual_metadata(visual, step=step_number, asset_id=asset_id))
+        if any(visual.get(key) != asset.get(key) for key in ("method", "evidence_kind", "visual_kind")):
+            errors.append(_issue("v3_visual_manifest_mismatch", step=step_number, asset_id=asset_id))
+        expected_prefix = expected_caption_prefix(view.part, view.chapter, sequence)
+        caption = str(visual.get("caption") or "").strip()
+        if not expected_prefix or not caption.startswith(expected_prefix) or len(caption) <= len(expected_prefix):
+            errors.append(_issue("figure_caption_format_required", step=step_number, asset_id=asset_id))
+    if visual_ids != set(assets):
+        errors.append(_issue("v3_visual_manifest_set_mismatch"))
+
     score, score_errors = compute_editorial_score(manuscript.get("editorial_review"))
     errors.extend(score_errors)
     return {"status": "invalid" if errors else "ready", "errors": _sort_issues(errors), "warnings": [], "editorial_score": score}
