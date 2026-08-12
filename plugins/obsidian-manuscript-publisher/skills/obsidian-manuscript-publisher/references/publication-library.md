@@ -7,7 +7,7 @@ The desktop publication library is a one-way, copy-ready export of one explicitl
 - `원고로 완성해줘`: finish the `book_a4` pipeline, then export its verified version.
 - `범용 블로그형으로 만들어줘`: finish the `adaptive_blog` pipeline, then export its verified version.
 - `바탕화면 출판함만 다시 만들어줘`: re-export the exact already-verified version named or established in the active request. Do not regenerate prose or images.
-- `v0.3 검증본을 출판함에 정리해줘`: backfill only that explicitly named version.
+- `v0.N 검증본을 출판함에 정리해줘`: backfill only that explicitly named immutable version.
 
 For re-export or backfill, require the exact project, profile, and version. Never scan all historical versions implicitly. If any of those three values is missing or ambiguous, ask for the missing value instead of selecting a nearby folder.
 
@@ -22,6 +22,8 @@ validation → render → Vault publication attempt → desktop export
 Desktop export is allowed only when the selected immutable `v0.N` package has a fresh `status: ready` validation report and all required rendered files. Recalculate the validation-input and asset hashes before export. A stale report, missing render, unexpected file, unsafe path, or hash mismatch stops before `00 최신본` changes.
 
 Vault publication and desktop export are independent outcomes. Obsidian may be closed or Local REST may fail while a fresh local package remains eligible for desktop export. Never describe a desktop export as successful Vault publication.
+
+검증·렌더·Vault 발행 시도·바탕화면 export를 한 번에 수행하는 유지보수용 명령은 `scripts/finalize_publication.py`입니다. 사용자가 일반 대화에서 경로를 조합하지 않도록 스킬이 정확한 프로젝트·장·버전을 선택한 뒤 호출합니다.
 
 ## Publication Root
 

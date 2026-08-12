@@ -8,6 +8,10 @@ PLUGIN_ROOT = REPOSITORY_ROOT / "plugins" / "obsidian-manuscript-publisher"
 SKILL = PLUGIN_ROOT / "skills" / "obsidian-manuscript-publisher" / "SKILL.md"
 PLUGIN_MANIFEST = PLUGIN_ROOT / ".codex-plugin" / "plugin.json"
 README = REPOSITORY_ROOT / "README.md"
+MARKETPLACE = REPOSITORY_ROOT / ".agents" / "plugins" / "marketplace.json"
+INSTALL_PROMPT = REPOSITORY_ROOT / "INSTALL_PROMPT.md"
+RELEASE = REPOSITORY_ROOT / "docs" / "RELEASE.md"
+CITATION = REPOSITORY_ROOT / "CITATION.cff"
 BLOG_SCHEMA = PLUGIN_ROOT / "skills" / "obsidian-manuscript-publisher" / "references" / "blog-schema.md"
 BLOG_POLICY = PLUGIN_ROOT / "skills" / "obsidian-manuscript-publisher" / "references" / "blog-editorial-policy.md"
 BOOK_SCHEMA = PLUGIN_ROOT / "skills" / "obsidian-manuscript-publisher" / "references" / "manuscript-schema.md"
@@ -75,9 +79,9 @@ class ObsidianManuscriptWorkspaceTests(unittest.TestCase):
         ]:
             self.assertIn(required_text, skill)
 
-    def test_public_metadata_exposes_blog_profile_as_version_0_3_2(self):
+    def test_public_metadata_exposes_blog_profile_as_version_0_4_0(self):
         manifest = json.loads(PLUGIN_MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "0.3.2")
+        self.assertEqual(manifest["version"], "0.4.0")
         self.assertIn("blog", manifest["description"].lower())
         self.assertIn("blog", manifest["interface"]["longDescription"].lower())
 
@@ -90,6 +94,28 @@ class ObsidianManuscriptWorkspaceTests(unittest.TestCase):
             "AI 탐지기",
         ]:
             self.assertIn(required_text, readme)
+
+    def test_every_beginner_install_reference_is_pinned_to_the_manifest_version(self):
+        manifest = json.loads(PLUGIN_MANIFEST.read_text(encoding="utf-8"))
+        version = manifest["version"]
+        tag = f"v{version}"
+        marketplace = json.loads(MARKETPLACE.read_text(encoding="utf-8"))
+        source = marketplace["plugins"][0]["source"]
+
+        self.assertEqual(source["ref"], tag)
+        for document in (README, INSTALL_PROMPT, RELEASE):
+            self.assertIn(tag, document.read_text(encoding="utf-8"))
+        self.assertIn(f"version: {version}", CITATION.read_text(encoding="utf-8"))
+        self.assertTrue((REPOSITORY_ROOT / "docs" / f"RELEASE_NOTES_{tag}.md").is_file())
+
+    def test_packaged_plugin_ships_its_pinned_renderer_requirements(self):
+        root_requirements = (REPOSITORY_ROOT / "requirements.txt").read_bytes()
+        packaged_requirements = PLUGIN_ROOT / "requirements.txt"
+        self.assertTrue(packaged_requirements.is_file())
+        self.assertEqual(
+            packaged_requirements.read_text(encoding="utf-8").replace("\r\n", "\n"),
+            root_requirements.decode("utf-8").replace("\r\n", "\n"),
+        )
 
     def test_blog_references_match_the_executable_five_to_seven_section_contract(self):
         schema = BLOG_SCHEMA.read_text(encoding="utf-8")
@@ -178,7 +204,7 @@ class ObsidianManuscriptWorkspaceTests(unittest.TestCase):
         combined = skill + "\n" + reference
         for required_text in [
             "바탕화면 출판함만 다시 만들어줘",
-            "v0.3 검증본을 출판함에 정리해줘",
+            "v0.N 검증본을 출판함에 정리해줘",
             "exact project, profile, and version",
             "Never scan all historical versions implicitly",
         ]:

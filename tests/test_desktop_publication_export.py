@@ -138,6 +138,58 @@ class PublicationExportTestCase(BlogPackageMixin, unittest.TestCase):
 
 
 class ValidBundleTests(PublicationExportTestCase):
+    def test_nested_registry_destination_root_is_preserved_as_a_safe_relative_path(self):
+        source = self.create_rendered_book()
+        result = exporter.export_publication_bundle(exporter.ExportRequest(
+            source_version_dir=source,
+            publication_root=self.publication_root,
+            project_destination_root="01 Manuscript/AAA AI Agent Automation",
+            vault_path=self.vault_root,
+        ))
+
+        self.assertEqual(result["status"], "exported")
+        self.assertTrue(Path(result["latest_path"]).is_dir())
+        self.assertIn("AAA AI Agent Automation", str(result["latest_path"]))
+
+    def test_book_v2_string_body_is_preserved_in_copy_text(self):
+        source = self.create_rendered_book()
+        manuscript = source / "manuscript.json"
+        payload = json.loads(manuscript.read_text(encoding="utf-8"))
+        payload["template_version"] = 2
+        preparation_visual = payload["real_world_use_visual"]
+        preparation_visual["caption"] = "그림 1-01-2. 검증에 필요한 준비 자료 예시"
+        step_visual = payload["steps"][0]["visual"]
+        step_visual["caption"] = "그림 1-01-3. 검증 흐름을 구현한 예시 화면"
+        payload["practice_preparation"] = {"body": "자료를 준비합니다.", "visual": preparation_visual}
+        payload["practice_blocks"] = [{
+            "type": "step", "number": 1, "title": "검증 흐름 구현",
+            "body": "첫 문장을 온전히 보존합니다. 둘째 문장도 온전히 보존합니다.",
+            "step_kind": "build", "build_action": "검증 흐름을 구현합니다.",
+            "artifact": {"name": "검증 흐름", "paths": ["app.py"], "status": "verified"},
+            "completion_check": "테스트 결과를 확인합니다.",
+            "interaction": {"user_request": "구현을 요청합니다.", "codex_action": "기능을 구현합니다.", "user_check": "결과를 확인합니다."},
+            "visual": step_visual,
+        }]
+        payload["real_world_use_visual"] = None
+        payload["verification_note"] = "실제 적용 전에 확인합니다."
+        payload.pop("steps", None)
+        payload.pop("tip", None)
+        manuscript.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        manifest = source / "asset-manifest.json"
+        manifest_payload = json.loads(manifest.read_text(encoding="utf-8"))
+        manifest_payload["assets"] = [record for record in manifest_payload["assets"] if record["asset_id"] in {payload["preview"]["visual"]["asset_id"], payload["practice_preparation"]["visual"]["asset_id"], payload["practice_blocks"][0]["visual"]["asset_id"]}]
+        manifest.write_text(json.dumps(manifest_payload, ensure_ascii=False), encoding="utf-8")
+        report = source / "asset-validation.json"
+        validation = subprocess.run([str(PYTHON), str(manuscript_support.VALIDATOR), str(manuscript), str(manifest), str(report)], capture_output=True, text=True)
+        self.assertEqual(validation.returncode, 0, validation.stderr)
+        rendered = subprocess.run([str(PYTHON), str(manuscript_support.RENDERER), str(manuscript), str(source)], capture_output=True, text=True)
+        self.assertEqual(rendered.returncode, 0, rendered.stderr)
+
+        result = exporter.export_publication_bundle(self.request(source))
+        copy_text = (Path(result["latest_path"]) / "01 본문-복사용.txt").read_text(encoding="utf-8")
+        self.assertIn("첫 문장을 온전히 보존합니다. 둘째 문장도 온전히 보존합니다.", copy_text)
+        self.assertNotIn("첫 문 장 을", copy_text)
+
     def test_book_exports_copy_text_markdown_html_pdf_guide_and_numbered_images(self):
         source = self.create_rendered_book()
         result = exporter.export_publication_bundle(self.request(source))
@@ -174,6 +226,17 @@ class ValidBundleTests(PublicationExportTestCase):
         manifest = json.loads((latest / "_meta" / "export-manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["source_version"], "v0.1")
         self.assertEqual(manifest["vault_publication_status"], "not_published")
+
+    def test_existing_managed_vault_shortcut_is_allowed_during_export(self):
+        source = self.create_rendered_book()
+        self.publication_root.mkdir(parents=True)
+        shortcut = self.publication_root / exporter.MANAGED_VAULT_SHORTCUT
+        shortcut.write_bytes(b"managed shortcut placeholder")
+
+        result = exporter.export_publication_bundle(self.request(source))
+
+        self.assertEqual(result["status"], "exported")
+        self.assertEqual(shortcut.read_bytes(), b"managed shortcut placeholder")
 
     def test_blog_exports_copy_text_portable_preview_and_no_pdf(self):
         source = self.create_rendered_blog()
@@ -683,8 +746,41 @@ class VersionTransactionTests(PublicationExportTestCase):
         report = json.loads(marker.read_text(encoding="utf-8"))
         self.assertEqual(report["status"], "incomplete")
         self.assertEqual(report["operation"], "publication_export")
+        self.assertEqual(report["code"], "export_failed")
+        self.assertEqual(report["owner"], exporter.INCOMPLETE_MARKER_OWNER)
         self.assertIn("error", report)
         self.assertNotIn("DELETE", marker.read_text(encoding="utf-8"))
+
+    def test_success_does_not_delete_an_unowned_incomplete_marker(self):
+        source = self.create_rendered_blog("v0.1")
+        self.publication_root.mkdir(parents=True)
+        marker = self.publication_root / exporter.INCOMPLETE_MARKER
+        marker.write_text(json.dumps({"status": "incomplete", "owner": "someone-else"}), encoding="utf-8")
+
+        with self.assertRaises(exporter.ExportError) as caught:
+            exporter.export_publication_bundle(self.request(source))
+
+        self.assertEqual(caught.exception.code, "unmanaged_root_file")
+        self.assertTrue(marker.exists())
+
+    def test_known_legacy_export_marker_is_cleared_after_a_successful_export(self):
+        source = self.create_rendered_book("v0.1")
+        self.publication_root.mkdir(parents=True)
+        marker = self.publication_root / exporter.INCOMPLETE_MARKER
+        marker.write_text(
+            json.dumps({
+                "status": "incomplete",
+                "operation": "publication_export",
+                "error": "legacy exporter interrupted",
+                "read_only_report": True,
+            }),
+            encoding="utf-8",
+        )
+
+        result = exporter.export_publication_bundle(self.request(source))
+
+        self.assertEqual(result["status"], "exported")
+        self.assertFalse(marker.exists())
 
     def test_empty_assets_are_rejected_before_staging(self):
         source = self.create_rendered_blog("v0.1")

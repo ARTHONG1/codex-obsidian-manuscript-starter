@@ -82,7 +82,8 @@ function Get-RuntimeConfig {
     return Get-Content -Raw -LiteralPath $RuntimeConfigPath | ConvertFrom-Json
 }
 function Find-ObsidianExecutable { return (Join-Path $env:WINDIR "explorer.exe") }
-Export-ModuleMember -Function Resolve-InstallPaths, Save-RuntimeConfig, Get-RuntimeConfig, Find-ObsidianExecutable
+function Test-PythonRuntime { return [pscustomobject]@{ Ready = $true; Reason = "ready"; Python = "python" } }
+Export-ModuleMember -Function Resolve-InstallPaths, Save-RuntimeConfig, Get-RuntimeConfig, Find-ObsidianExecutable, Test-PythonRuntime
 '@ | Set-Content -LiteralPath (Join-Path $libRoot "Environment.psm1") -Encoding UTF8
 
     @'
@@ -97,16 +98,18 @@ Export-ModuleMember -Function Initialize-StarterVault
     $restBody = if ($RestUnavailable) {
 @'
 function Install-PinnedLocalRestPlugin { [pscustomobject]@{ PluginId = "test-rest"; Version = "1.0.0" } }
+function Test-PinnedLocalRestPluginInstallation { [pscustomobject]@{ Ready = $false } }
 function Wait-ForLocalRest { throw "test REST unavailable" }
 function Test-LocalRestRoundTrip { throw "test REST unavailable" }
-Export-ModuleMember -Function Install-PinnedLocalRestPlugin, Wait-ForLocalRest, Test-LocalRestRoundTrip
+Export-ModuleMember -Function Install-PinnedLocalRestPlugin, Test-PinnedLocalRestPluginInstallation, Wait-ForLocalRest, Test-LocalRestRoundTrip
 '@
     } else {
 @'
 function Install-PinnedLocalRestPlugin { [pscustomobject]@{ PluginId = "test-rest"; Version = "1.0.0" } }
+function Test-PinnedLocalRestPluginInstallation { [pscustomobject]@{ Ready = $false } }
 function Wait-ForLocalRest { return [pscustomobject]@{ Status = "ready" } }
 function Test-LocalRestRoundTrip { return [pscustomobject]@{ Status = "ready"; Port = 27124 } }
-Export-ModuleMember -Function Install-PinnedLocalRestPlugin, Wait-ForLocalRest, Test-LocalRestRoundTrip
+Export-ModuleMember -Function Install-PinnedLocalRestPlugin, Test-PinnedLocalRestPluginInstallation, Wait-ForLocalRest, Test-LocalRestRoundTrip
 '@
     }
     $restBody | Set-Content -LiteralPath (Join-Path $libRoot "LocalRest.psm1") -Encoding UTF8
@@ -199,6 +202,41 @@ Describe "Beginner installer safety contract" {
         # so the function emits exactly one summary object.
         $source = Get-Content -Raw -LiteralPath $restModule -Encoding UTF8
         $source | Should Match 'Set-EnabledCommunityPlugin[^\r\n]*\|\s*Out-Null'
+    }
+
+    It "recognises a hash-verified Local REST plugin as safe to reuse after a restart" {
+        Import-Module $restModule -Force
+        $vault = Join-Path $TestDrive "resumable-vault"
+        $plugin = Join-Path $vault ".obsidian\plugins\test-rest"
+        New-Item -ItemType Directory -Path $plugin -Force | Out-Null
+        $manifestPath = Join-Path $plugin "manifest.json"
+        $mainPath = Join-Path $plugin "main.js"
+        Set-Content -LiteralPath $manifestPath -Value '{"id":"test-rest"}' -Encoding UTF8 -NoNewline
+        Set-Content -LiteralPath $mainPath -Value "module.exports = {};" -Encoding UTF8 -NoNewline
+        $lockPath = Join-Path $TestDrive "resumable-lock.json"
+        [ordered]@{
+            schemaVersion = 1
+            localRest = [ordered]@{
+                pluginId = "test-rest"
+                version = "1.0.0"
+                assets = @(
+                    [ordered]@{ name = "manifest.json"; url = "https://example.invalid/manifest.json"; sha256 = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant() },
+                    [ordered]@{ name = "main.js"; url = "https://example.invalid/main.js"; sha256 = (Get-FileHash -LiteralPath $mainPath -Algorithm SHA256).Hash.ToLowerInvariant() }
+                )
+            }
+        } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $lockPath -Encoding UTF8 -NoNewline
+
+        $result = Test-PinnedLocalRestPluginInstallation -VaultPath $vault -LockPath $lockPath
+
+        $result.Ready | Should Be $true
+        $result.PluginId | Should Be "test-rest"
+    }
+
+    It "uses verified existing plugin files instead of overwriting them during a resumed install" {
+        $installer = Get-Content -Raw -LiteralPath (Join-Path $repoRoot "bootstrap\install-windows.ps1") -Encoding UTF8
+        $installer | Should Match 'Test-PinnedLocalRestPluginInstallation\s+-VaultPath\s+\$paths\.VaultPath'
+        $installer | Should Match 'if\s*\(\$existingInstallation\.Ready\)'
+        $installer | Should Match '\$installation\s*=\s+\$existingInstallation'
     }
 
     It "writes community-plugins.json as a flat array of plugin id strings from an empty seed" {

@@ -264,6 +264,35 @@ class PublishManuscriptVersionTests(BlogPackageMixin, unittest.TestCase):
             write_report.assert_not_called()
             remote_list.assert_not_called()
 
+    def test_junctioned_ancestor_is_rejected_before_report_or_rest_publication(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            version_dir = root / "junctioned" / "v0.1"
+            version_dir.mkdir(parents=True)
+            original_reason = publisher._unsafe_link_reason
+
+            def fake_reason(path: Path):
+                if Path(path).name == "junctioned":
+                    return "reparse point"
+                return original_reason(path)
+
+            with (
+                mock.patch.object(publisher, "_unsafe_link_reason", side_effect=fake_reason),
+                mock.patch.object(publisher, "_write_report") as write_report,
+                mock.patch.object(publisher, "list_vault_directory") as remote_list,
+                mock.patch.object(publisher, "save_and_verify") as save,
+            ):
+                with self.assertRaisesRegex(ValueError, "reparse point"):
+                    publisher.publish_version(
+                        Path("unused-config.json"),
+                        version_dir,
+                        "Projects/Example/v0.1",
+                    )
+
+            write_report.assert_not_called()
+            remote_list.assert_not_called()
+            save.assert_not_called()
+
     def test_adaptive_blog_publication_rejects_tampered_rendered_markdown(self):
         with tempfile.TemporaryDirectory() as temporary:
             version_dir = Path(temporary)

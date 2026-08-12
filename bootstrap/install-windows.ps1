@@ -21,7 +21,9 @@ Import-Module (Join-Path $bootstrapRoot "lib\PublicationLibrary.psm1") -Force
 
 $paths = Resolve-InstallPaths -VaultPath $VaultPath -RuntimeRoot $RuntimeRoot -PublicationRoot $PublicationRoot
 $stage = Get-InstallStage -RuntimeRoot $paths.RuntimeRoot
-Set-InstallStage -RuntimeRoot $paths.RuntimeRoot -Stage "preflight" | Out-Null
+if ($null -eq $stage) {
+    Set-InstallStage -RuntimeRoot $paths.RuntimeRoot -Stage "preflight" | Out-Null
+}
 
 $pythonState = Test-PythonRuntime
 if (-not $pythonState.Ready) {
@@ -84,9 +86,18 @@ if (-not $EnableCommunityPlugin) {
 
 Initialize-StarterVault -VaultPath $paths.VaultPath -AllowExistingEmptyVault:$AllowExistingEmptyVault | Out-Null
 Set-InstallStage -RuntimeRoot $paths.RuntimeRoot -Stage "vault_ready" | Out-Null
-# Let the module resolve the lock from its own bootstrap tree so the packaged plugin stays
-# self-contained. Passing an explicit parent-relative path here defeated that resolution.
-$installation = Install-PinnedLocalRestPlugin -VaultPath $paths.VaultPath -EnableCommunityPlugin
+# On a resumed run, reuse only a fully hash-verified prior plugin installation. A partly
+# written, changed, or foreign installation is never overwritten; the normal safe installer
+# then stops with an actionable error instead.
+$existingInstallation = Test-PinnedLocalRestPluginInstallation -VaultPath $paths.VaultPath
+if ($existingInstallation.Ready) {
+    Enable-PinnedLocalRestPlugin -VaultPath $paths.VaultPath -PluginId $existingInstallation.PluginId | Out-Null
+    $installation = $existingInstallation
+} else {
+    # Let the module resolve the lock from its own bootstrap tree so the packaged plugin stays
+    # self-contained. Passing an explicit parent-relative path here defeated that resolution.
+    $installation = Install-PinnedLocalRestPlugin -VaultPath $paths.VaultPath -EnableCommunityPlugin
+}
 Set-InstallStage -RuntimeRoot $paths.RuntimeRoot -Stage "local_rest_ready" | Out-Null
 Save-RuntimeConfig -Paths $paths | Out-Null
 Set-InstallStage -RuntimeRoot $paths.RuntimeRoot -Stage "runtime_ready" | Out-Null

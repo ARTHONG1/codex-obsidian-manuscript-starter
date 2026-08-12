@@ -48,6 +48,42 @@ function Assert-LocalRestPluginTargetIsSafe {
     return $target
 }
 
+function Test-PinnedLocalRestPluginInstallation {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)] [string]$VaultPath,
+        [string]$LockPath
+    )
+
+    $dependency = if ($LockPath) { Get-LocalRestLock -LockPath $LockPath } else { Get-LocalRestLock }
+    $target = Join-Path $VaultPath (".obsidian\\plugins\\" + $dependency.pluginId)
+    if (-not (Test-Path -LiteralPath $target -PathType Container)) {
+        return [pscustomobject]@{ Ready = $false; Reason = "plugin_missing"; Path = $target }
+    }
+    $targetItem = Get-Item -LiteralPath $target -Force
+    if (($targetItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        return [pscustomobject]@{ Ready = $false; Reason = "plugin_path_is_reparse_point"; Path = $target }
+    }
+    foreach ($asset in @($dependency.assets)) {
+        if ([IO.Path]::GetFileName([string]$asset.name) -ne [string]$asset.name) {
+            throw "Dependency lock asset name is unsafe."
+        }
+        $path = Join-Path $target ([string]$asset.name)
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            return [pscustomobject]@{ Ready = $false; Reason = "pinned_asset_missing"; Path = $target }
+        }
+        $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actual -ne [string]$asset.sha256) {
+            return [pscustomobject]@{ Ready = $false; Reason = "pinned_asset_checksum_mismatch"; Path = $target }
+        }
+    }
+    $manifest = Get-Content -Raw -LiteralPath (Join-Path $target "manifest.json") | ConvertFrom-Json
+    if ([string]$manifest.id -ne [string]$dependency.pluginId) {
+        return [pscustomobject]@{ Ready = $false; Reason = "plugin_id_mismatch"; Path = $target }
+    }
+    return [pscustomobject]@{ Ready = $true; PluginId = $dependency.pluginId; Version = $dependency.version; Path = $target }
+}
+
 function Set-EnabledCommunityPlugin {
     [CmdletBinding()]
     param(
@@ -73,6 +109,22 @@ function Set-EnabledCommunityPlugin {
     $payload = "[" + (($enabled | ForEach-Object { ConvertTo-Json -InputObject $_ }) -join ",") + "]"
     Set-Content -LiteralPath $EnabledPath -Value $payload -Encoding UTF8 -NoNewline
     return $enabled.ToArray()
+}
+
+function Enable-PinnedLocalRestPlugin {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)] [string]$VaultPath,
+        [Parameter(Mandatory = $true)] [string]$PluginId
+    )
+
+    $obsidianPath = Join-Path $VaultPath ".obsidian"
+    $appPath = Join-Path $obsidianPath "app.json"
+    $app = if (Test-Path -LiteralPath $appPath) { Get-Content -Raw -LiteralPath $appPath | ConvertFrom-Json } else { [pscustomobject]@{} }
+    $app | Add-Member -NotePropertyName restrictedMode -NotePropertyValue $false -Force
+    $app | ConvertTo-Json | Set-Content -LiteralPath $appPath -Encoding UTF8 -NoNewline
+    $enabledPath = Join-Path $obsidianPath "community-plugins.json"
+    Set-EnabledCommunityPlugin -EnabledPath $enabledPath -PluginId $PluginId | Out-Null
 }
 
 function Install-PinnedLocalRestPlugin {
@@ -108,15 +160,9 @@ function Install-PinnedLocalRestPlugin {
         New-Item -ItemType Directory -Path $pluginsPath -Force | Out-Null
         Move-Item -LiteralPath $staging -Destination $target
 
-        $appPath = Join-Path $obsidianPath "app.json"
-        $app = if (Test-Path -LiteralPath $appPath) { Get-Content -Raw -LiteralPath $appPath | ConvertFrom-Json } else { [pscustomobject]@{} }
-        $app | Add-Member -NotePropertyName restrictedMode -NotePropertyValue $false -Force
-        $app | ConvertTo-Json | Set-Content -LiteralPath $appPath -Encoding UTF8 -NoNewline
-
-        $enabledPath = Join-Path $obsidianPath "community-plugins.json"
         # Suppress the helper's return value: leaking it into the output stream would make this
         # function emit a collection instead of the single summary object callers index into.
-        Set-EnabledCommunityPlugin -EnabledPath $enabledPath -PluginId $dependency.pluginId | Out-Null
+        Enable-PinnedLocalRestPlugin -VaultPath $VaultPath -PluginId $dependency.pluginId | Out-Null
         return [pscustomobject]@{ PluginId = $dependency.pluginId; Version = $dependency.version; Path = $target }
     }
     finally {
@@ -193,7 +239,7 @@ function Invoke-LoopbackRestRequest {
         $responsePath = Join-Path $temporary "response.bin"
         $certificatePath = Join-Path $temporary "local-rest-ca.pem"
         [IO.File]::WriteAllText($certificatePath, [string]$Connection.Certificate, [Text.UTF8Encoding]::new($false))
-        $escapedKey = $Connection.ApiKey.Replace('\\', '\\\\').Replace('"', '\\"')
+        $escapedKey = $Connection.ApiKey.Replace('\', '\\').Replace('"', '\"')
         @(
             "silent",
             "show-error",
@@ -251,4 +297,4 @@ function Test-LocalRestRoundTrip {
     }
 }
 
-Export-ModuleMember -Function Resolve-LocalRestLockPath, Get-LocalRestLock, Assert-LocalRestPluginTargetIsSafe, Set-EnabledCommunityPlugin, Install-PinnedLocalRestPlugin, Wait-ForLocalRest, Test-LocalRestRoundTrip
+Export-ModuleMember -Function Resolve-LocalRestLockPath, Get-LocalRestLock, Assert-LocalRestPluginTargetIsSafe, Test-PinnedLocalRestPluginInstallation, Set-EnabledCommunityPlugin, Enable-PinnedLocalRestPlugin, Install-PinnedLocalRestPlugin, Wait-ForLocalRest, Test-LocalRestRoundTrip

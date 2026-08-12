@@ -24,6 +24,7 @@ import uuid
 
 validate_blog = None
 validate_manuscript = None
+book_v3 = None
 
 
 VERSION_PATTERN = re.compile(r"^v0\.([1-9][0-9]*)$")
@@ -37,11 +38,14 @@ IMAGE_MARKDOWN = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 IMAGE_HTML = re.compile(r"(<img\b[^>]*?\bsrc=[\"'])([^\"']+)([\"'])", re.IGNORECASE)
 MANAGED_GUIDE_HEADER = "[Codex Obsidian Manuscript - managed publication guide]"
 MANAGED_INDEX_MARKER = "<!-- Codex Obsidian Manuscript - managed publication index -->"
+MANAGED_VAULT_SHORTCUT = "00 Obsidian 보관함 폴더.lnk"
 STAGING_OWNER_MARKER = ".codex-publication-staging"
 STAGING_OWNER_VALUE = "codex-obsidian-manuscript-publisher:v1"
 EXPORT_MANIFEST = "_meta/export-manifest.json"
 EXPORT_LOCK_NAME = ".codex-publication-export.lock"
 INCOMPLETE_MARKER = ".codex-publication-incomplete.json"
+INCOMPLETE_MARKER_OWNER = "codex-obsidian-manuscript-publisher:v1"
+LEGACY_INCOMPLETE_MARKER_KEYS = frozenset({"status", "operation", "error", "read_only_report"})
 OS_BENIGN_ROOT_FILES = frozenset({"desktop.ini", "Thumbs.db", ".DS_Store"})
 
 
@@ -52,6 +56,28 @@ class ExportError(ValueError):
         super().__init__(f"{code}: {message}")
         self.code = code
 
+
+def _is_exporter_owned_incomplete_marker(value: object) -> bool:
+    """Recognize current markers plus the strict pre-owner legacy marker shape.
+
+    Older releases left a read-only `publication_export` marker without an
+    owner field.  Recognizing only that exact four-key schema lets the next
+    successful export clear the known recovery artifact without treating an
+    arbitrary user file as exporter-owned.
+    """
+
+    if not isinstance(value, dict):
+        return False
+    if value.get("owner") == INCOMPLETE_MARKER_OWNER:
+        return True
+    return (
+        set(value) == LEGACY_INCOMPLETE_MARKER_KEYS
+        and value.get("status") == "incomplete"
+        and value.get("operation") == "publication_export"
+        and value.get("read_only_report") is True
+        and isinstance(value.get("error"), str)
+        and bool(value["error"].strip())
+    )
 
 def _acquire_export_lock(stream) -> None:
     stream.seek(0)
@@ -95,11 +121,13 @@ def _publication_lock(publication_root: Path):
 
 
 def _load_runtime_dependencies() -> None:
-    global validate_blog, validate_manuscript
+    global validate_blog, validate_manuscript, book_v3
     if validate_blog is None:
         validate_blog = importlib.import_module("validate_blog")
     if validate_manuscript is None:
         validate_manuscript = importlib.import_module("validate_manuscript")
+    if book_v3 is None:
+        book_v3 = importlib.import_module("book_v3")
 
 
 @dataclass(frozen=True)
@@ -256,11 +284,15 @@ def _require_registry_component(raw: str) -> str:
     value = unicodedata.normalize("NFC", raw)
     if value != value.strip() or value.endswith((".", " ")) or value in {".", ".."}:
         raise ExportError("unsafe_path", "project destination root is unsafe")
-    if "/" in value or "\\" in value or FORBIDDEN_COMPONENT.search(value):
-        raise ExportError("unsafe_path", "project destination root must be one folder name")
-    if _is_windows_reserved(value):
-        raise ExportError("unsafe_path", "project destination root is a Windows reserved name")
-    return value
+    if "\\" in value or PurePosixPath(value).is_absolute() or re.match(r"^[A-Za-z]:", value):
+        raise ExportError("unsafe_path", "project destination root must be a relative path")
+    parts = PurePosixPath(value).parts
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        raise ExportError("unsafe_path", "project destination root contains an unsafe segment")
+    for part in parts:
+        if FORBIDDEN_COMPONENT.search(part) or part.endswith((".", " ")) or _is_windows_reserved(part):
+            raise ExportError("unsafe_path", "project destination root contains an unsafe segment")
+    return "/".join(parts)
 
 
 def sanitize_component(raw: object) -> str:
@@ -424,20 +456,32 @@ def _inspect_book(request: ExportRequest, source: Path, project: str) -> Verifie
         source,
         (source_markdown, "manuscript.html", "manuscript.pdf"),
     )
-    visuals: list[tuple[str, str, dict]] = [
-        ("미리보기", "미리보기", metadata.get("preview", {}).get("visual")),
-    ]
-    if metadata.get("template_version") in (2, 3):
+    visuals: list[tuple[str, str, dict]] = []
+    if metadata.get("template_version") == 3:
+        try:
+            view = book_v3.parse_book_v3(metadata)
+        except book_v3.BookV3Error as error:
+            raise ExportError("manifest_invalid", "Book V3 metadata does not match the canonical contract") from error
+        visuals.append(("미리보기", "미리보기", view.preview.visual))
+        visuals.append(("실습-전-준비", "실습 전 준비", view.preparation.visual))
+        for step in view.steps:
+            visuals.append((f"Step-{step.number:02d}", step.title, step.visual or {}))
+        if view.real_world_use_panel is not None and view.real_world_use_panel.visual:
+            visuals.append(("실전-활용", "실전 활용하기", view.real_world_use_panel.visual))
+    else:
+        visuals.append(("미리보기", "미리보기", metadata.get("preview", {}).get("visual")))
+    if metadata.get("template_version") == 2:
         visuals.append(("preparation", "실습 사전 준비", metadata.get("practice_preparation", {}).get("visual")))
         for block in metadata.get("practice_blocks", []):
             if isinstance(block, dict) and block.get("type") == "step":
                 index = int(block.get("number", 0))
                 visuals.append((f"Step-{index:02d}", str(block.get("title") or f"Step {index}"), block.get("visual")))
-    for index, step in enumerate(metadata.get("steps", []), 1):
-        visuals.append((f"Step-{index:02d}", str(step.get("title") or f"Step {index}"), step.get("visual")))
-    visuals.append(("실전-활용", "실전 활용하기", metadata.get("real_world_use_visual")))
-    if metadata.get("template_version") in (2, 3) and not metadata.get("real_world_use_visual"):
-        visuals.pop()
+    if metadata.get("template_version") not in (2, 3):
+        for index, step in enumerate(metadata.get("steps", []), 1):
+            visuals.append((f"Step-{index:02d}", str(step.get("title") or f"Step {index}"), step.get("visual")))
+        visuals.append(("실전-활용", "실전 활용하기", metadata.get("real_world_use_visual")))
+    elif metadata.get("template_version") == 2 and metadata.get("real_world_use_visual"):
+        visuals.append(("실전-활용", "실전 활용하기", metadata.get("real_world_use_visual")))
     assets: list[AssetExport] = []
     used: set[str] = set()
     for sequence, (filename, insertion, visual) in enumerate(visuals, 1):
@@ -566,6 +610,43 @@ def _image_marker(sequence: int, label: str, caption: str) -> str:
 
 def _book_copy_text(package: VerifiedPackage) -> str:
     data = package.metadata
+    if data.get("template_version") == 3:
+        view = book_v3.parse_book_v3(data)
+        assets_by_id = {asset.asset_id: (index, asset) for index, asset in enumerate(package.assets, 1)}
+        preview_index, preview_asset = assets_by_id[str(view.preview.visual["asset_id"])]
+        preparation_index, preparation_asset = assets_by_id[str(view.preparation.visual["asset_id"])]
+        lines = [
+            f"[{view.part} - {view.chapter}] {view.title}",
+            *([view.subtitle] if view.subtitle else []), "",
+            "[이번 챕터에서는]", view.chapter_intro, "",
+            "[한눈에 보기]",
+            *(f"{row.category}: {row.item}" for row in view.quick_reference),
+            "", "[미리 보기]", view.preview.summary,
+            _image_marker(preview_index, preview_asset.insertion_label, preview_asset.caption),
+            "", "[실습 전 준비]", view.preparation.summary,
+            _image_marker(preparation_index, preparation_asset.insertion_label, preparation_asset.caption),
+            "", "[실습하기]",
+        ]
+        for block in view.practice_blocks:
+            if block.kind == "step":
+                index, asset = assets_by_id[str((block.visual or {})["asset_id"])]
+                lines.extend([f"Step {block.number}. {block.title}", block.body, _image_marker(index, asset.insertion_label, asset.caption), ""])
+            else:
+                lines.extend(["[꿀팁 더하기]", block.title, block.body, ""])
+        lines.extend(["[실전 활용하기]", view.real_world_use])
+        if view.real_world_use_panel is not None:
+            lines.append(view.real_world_use_panel.summary)
+            if view.real_world_use_panel.visual:
+                index, asset = assets_by_id[str(view.real_world_use_panel.visual["asset_id"])]
+                lines.extend([_image_marker(index, asset.insertion_label, asset.caption), ""])
+        if view.verification_note:
+            lines.extend(["", f"※ {view.verification_note}"])
+        return "\n".join(lines).rstrip() + "\n"
+    def body_text(value: object) -> str:
+        if isinstance(value, list):
+            return " ".join(str(sentence).strip() for sentence in value if str(sentence).strip())
+        return str(value or "").strip()
+
     assets = iter(package.assets)
     preview_asset = next(assets)
     lines = [
@@ -589,11 +670,11 @@ def _book_copy_text(package: VerifiedPackage) -> str:
         for block in data["practice_blocks"]:
             if block.get("type") == "step":
                 asset = next(assets)
-                body = " ".join(str(sentence).strip() for sentence in block.get("body", []))
+                body = body_text(block.get("body"))
                 lines.extend([f"Step {block['number']}. {block['title']}", body, _image_marker(sequence, asset.insertion_label, asset.caption), ""])
                 sequence += 1
             else:
-                lines.extend(["[꿀팁 더하기]", " ".join(str(sentence).strip() for sentence in block.get("body", [])), ""])
+                lines.extend(["[꿀팁 더하기]", body_text(block.get("body")), ""])
         lines.extend(["[실전 활용하기]", str(data["real_world_use"]), "", f"※ {data['verification_note']}"])
         return "\n".join(lines).rstrip() + "\n"
     for index, step in enumerate(data["steps"], 1):
@@ -794,6 +875,8 @@ def build_bundle(package: VerifiedPackage, staging_dir: Path) -> dict:
         "project_destination_root": package.project_destination_root,
         "title": package.title,
         "source_version": package.source_version,
+        "template_version": package.metadata.get("template_version"),
+        "editorial_quality_version": package.metadata.get("editorial_quality_version"),
         "source_hashes": package.source_hashes,
         "validation_status": "ready",
         "vault_publication_status": package.vault_publication_status,
@@ -1091,7 +1174,16 @@ def _preflight_root_files(publication_root: Path) -> None:
             raise ExportError("unmanaged_root_file", "cannot verify an existing managed root file") from error
         if not current.startswith(marker):
             raise ExportError("unmanaged_root_file", "refusing to overwrite an unmanaged root file")
+    incomplete_path = publication_root / INCOMPLETE_MARKER
+    if incomplete_path.exists():
+        try:
+            incomplete = json.loads(incomplete_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            raise ExportError("unmanaged_root_file", "cannot verify an existing incomplete export marker") from error
+        if not _is_exporter_owned_incomplete_marker(incomplete):
+            raise ExportError("unmanaged_root_file", "refusing to replace an incomplete marker not owned by this exporter")
     managed_names = {path.name for path, _ in managed_files}
+    managed_names.add(MANAGED_VAULT_SHORTCUT)
     managed_names.update({EXPORT_LOCK_NAME, INCOMPLETE_MARKER})
     unexpected = sorted(
         path.name
@@ -1216,6 +1308,9 @@ def _export_publication_bundle_locked(request: ExportRequest) -> dict:
         _commit_promotion(promotion)
         incomplete_path = publication_root / INCOMPLETE_MARKER
         if incomplete_path.exists():
+            incomplete = json.loads(incomplete_path.read_text(encoding="utf-8"))
+            if not _is_exporter_owned_incomplete_marker(incomplete):
+                raise ExportError("unmanaged_root_file", "refusing to remove an incomplete marker not owned by this exporter")
             incomplete_path.unlink()
     except Exception as error:
         if staging.exists():
@@ -1237,6 +1332,8 @@ def _export_publication_bundle_locked(request: ExportRequest) -> dict:
             (json.dumps({
                 "status": "incomplete",
                 "operation": "publication_export",
+                "code": "export_failed",
+                "owner": INCOMPLETE_MARKER_OWNER,
                 "error": str(error),
                 "read_only_report": True,
             }, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
