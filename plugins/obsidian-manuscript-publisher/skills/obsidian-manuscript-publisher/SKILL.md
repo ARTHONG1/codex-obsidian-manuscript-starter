@@ -31,9 +31,20 @@ Choose one explicit output profile before synthesis. Conversation archive, delet
 
 - `book_a4`: select for `출판 원고형`, `A4 원고`, `책 원고`, or a manuscript request that names no profile. `book_a4 remains the default` for backward compatibility.
 - `adaptive_blog`: select for `범용 블로그형`, `블로그 버전`, `Markdown과 HTML 블로그`, or another explicit request for a platform-independent blog.
+- `custom_manuscript`: select only when the user names an approved user template, such as `출판사 A 원고형`. A request to analyze a PDF, DOCX, or image creates a candidate preview and pauses for explicit approval; it never registers a template on the first request.
 - `둘 다`: run `book_a4` and `adaptive_blog` as two independent pipelines and allocate a separate immutable version for each. A failure in one pipeline must not overwrite, relabel, or invalidate the other pipeline's verified output.
 
 Always record the chosen profile in its source JSON. Never send `blog.json` to the book validator or renderer, and never send `manuscript.json` to the blog validator or renderer.
+
+## User Template Registration
+
+Trigger: `이 PDF를 분석해서 ‘출판사 A 원고형’ 템플릿 후보를 만들어줘` or equivalent.
+
+1. Treat PDF, DOCX, PNG, JPG, and WEBP as untrusted input and run the source boundary before parsing.
+2. Extract bounded structure evidence and create a local candidate with a `candidate_id`, `preview.html`, `preview.pdf`, confidence, and unresolved decisions.
+3. Show the preview and stop. `needs_review` may preview only; registration requires `preview_ready`.
+4. Register only after the user approves the exact active candidate ID. Allocate immutable `t0.N` and never overwrite an earlier template.
+5. To use it, request `이 대화 재료로 ‘출판사 A 원고형’ 원고를 만들어줘`. Produce isolated custom Markdown, HTML, PDF, Vault, and Desktop outputs without changing `book_a4` or `adaptive_blog`.
 
 ## New Book A4 Routing Contract
 

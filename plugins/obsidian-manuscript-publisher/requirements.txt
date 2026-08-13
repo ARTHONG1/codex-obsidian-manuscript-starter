@@ -1,3 +1,6 @@
 # Runtime dependencies for manuscript rendering and validation.
 Pillow==11.3.0
 reportlab==4.4.3
+python-docx==1.2.0
+pdfplumber==0.11.9
+pypdfium2==5.12.1
