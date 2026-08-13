@@ -10,6 +10,8 @@ Codex 대화를 Obsidian에 대화별로 분리해 보관하고, 검증된 재�
 - 대화 전체 원본과 원고 재료 카드를 함께 저장합니다.
 - 재료를 바탕으로 이미지가 포함된 A4 세로형 HTML·PDF·Markdown 원고를 만듭니다.
 - 같은 재료를 네이버·티스토리·워드프레스 등에 옮길 수 있는 Markdown·HTML 블로그로도 만듭니다.
+- PDF·DOCX·PNG·JPG·WEBP 원고 예시를 분석해 사용자 양식 후보를 만들고, 미리보기와 명시적 승인 후 불변 `t0.N` 템플릿으로 등록합니다.
+- 승인한 사용자 양식으로 custom Markdown·HTML·PDF 원고를 만들고 바탕화면 출판함으로 내보냅니다.
 - 실습 Step을 완성된 서비스의 사용법이 아니라, Codex에게 Skill·플러그인·MCP·에이전트·자동화 도구를 만들어 달라고 요청하고 검증하는 과정으로 작성합니다.
 - Step 수는 실제 제작 과정에 맞게 유동적으로 정하며, 각 Step에는 가로형 AI 생성 이미지와 바로 아래 설명을 넣습니다.
 - 특정 대화의 Obsidian 묶음만 명시적으로 삭제할 수 있습니다. 다른 대화와 원고 버전은 삭제하지 않습니다.
@@ -19,7 +21,7 @@ Codex 대화를 Obsidian에 대화별로 분리해 보관하고, 검증된 재�
 Codex 채팅창에 아래 내용을 그대로 붙여넣습니다.
 
 ```text
-GitHub의 ARTHONG1/codex-obsidian-manuscript-starter v0.4.0를 처음부터 설치해줘.
+GitHub의 ARTHONG1/codex-obsidian-manuscript-starter v0.5.0를 처음부터 설치해줘.
 나는 Codex만 설치한 초보자야. Obsidian 설치, 새 빈 보관함 생성, Local REST API 연결, 원고 스킬 설치와 연결 확인까지 진행해줘.
 기존 Obsidian 보관함과 기존 설정은 건드리지 말고, API 키와 인증서 값은 출력하지 마.
 설치나 커뮤니티 플러그인 동의가 필요하면 먼저 나에게 물어봐.
@@ -32,7 +34,7 @@ Codex가 설치 명령을 직접 실행할 수 없는 환경이라면 PowerShell
 이미 쓰고 있는 Obsidian 보관함을 그대로 연결하는 기능은 아직 없습니다. 설치 대상은 전용 새 빈 폴더이며, 새 빈 보관함을 사용합니다.
 
 ```powershell
-codex plugin marketplace add ARTHONG1/codex-obsidian-manuscript-starter --ref v0.4.0
+codex plugin marketplace add ARTHONG1/codex-obsidian-manuscript-starter --ref v0.5.0
 codex plugin add obsidian-manuscript-publisher@codex-obsidian-starter
 ```
 
@@ -68,6 +70,18 @@ codex plugin add obsidian-manuscript-publisher@codex-obsidian-starter
 
 ```text
 이 대화 재료로 플랫폼 독립 범용 블로그형을 만들어줘.
+```
+
+```text
+이 PDF를 분석해서 ‘출판사 A 원고형’ 템플릿 후보를 만들어줘.
+```
+
+```text
+현재 활성 후보를 승인하고 ‘출판사 A 원고형’ 템플릿으로 등록해줘.
+```
+
+```text
+이 대화 재료로 ‘출판사 A 원고형’ 원고를 만들어줘.
 ```
 
 ```text
