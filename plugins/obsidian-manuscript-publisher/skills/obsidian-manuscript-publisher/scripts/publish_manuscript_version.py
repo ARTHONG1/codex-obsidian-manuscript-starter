@@ -26,7 +26,7 @@ BLOG_DIRECTORY = "02 Blog"
 BOOK_DIRECTORY = "01 Manuscript"
 BLOG_SLUG_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 VERSION_PATTERN = re.compile(r"^v0\.[1-9][0-9]*$")
-APPROVED_ROOTS = {"Projects", "01 Projects", BLOG_DIRECTORY, BOOK_DIRECTORY}
+APPROVED_ROOTS = {"Projects", "01 Projects", BLOG_DIRECTORY, BOOK_DIRECTORY, "03 Custom Manuscript"}
 
 
 def _report_bytes(report: dict) -> bytes:

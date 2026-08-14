@@ -162,10 +162,27 @@ function Set-InstallStage {
 function Test-PythonRuntime {
     param([string]$PythonPath)
     $command = if ($PythonPath) { Get-Command $PythonPath -ErrorAction SilentlyContinue } else { Get-Command python -ErrorAction SilentlyContinue }
-    if (-not $command) { return [pscustomobject]@{ Ready = $false; Reason = "python_missing"; Python = $null } }
-    & $command.Source -c "import PIL, reportlab" 2>$null
-    if ($LASTEXITCODE -ne 0) { return [pscustomobject]@{ Ready = $false; Reason = "packages_missing"; Python = $command.Source } }
-    return [pscustomobject]@{ Ready = $true; Reason = "ready"; Python = $command.Source }
+    if (-not $command) {
+        return [pscustomobject]@{ Ready = $false; Reason = "python_missing"; Python = $null; Missing = @(); Mismatched = @{} }
+    }
+    $probe = Join-Path (Split-Path -Parent $PSScriptRoot) "verify_python_runtime.py"
+    try {
+        $json = (& $command.Source $probe 2>$null | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($json)) { throw "probe_failed" }
+        $result = $json | ConvertFrom-Json
+        return [pscustomobject]@{
+            Ready = [bool]$result.ready
+            Reason = [string]$result.reason
+            Python = [string]$result.python
+            PythonVersion = [string]$result.python_version
+            Expected = $result.expected
+            Actual = $result.actual
+            Missing = @($result.missing)
+            Mismatched = $result.mismatched
+        }
+    } catch {
+        return [pscustomobject]@{ Ready = $false; Reason = "runtime_probe_failed"; Python = $command.Source; Missing = @(); Mismatched = @{} }
+    }
 }
 
 Export-ModuleMember -Function Resolve-InstallPaths, Save-RuntimeConfig, Get-RuntimeConfig, Find-ObsidianExecutable, Get-InstallStagePath, Get-InstallStage, Set-InstallStage, Test-PythonRuntime

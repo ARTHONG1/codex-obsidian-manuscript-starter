@@ -8,8 +8,15 @@ ROOT = Path(__file__).resolve().parents[1]
 class RuntimeDependencyContractTests(unittest.TestCase):
     def test_runtime_renderer_dependencies_are_pinned(self):
         requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
-        self.assertIn("Pillow==11.3.0", requirements)
-        self.assertIn("reportlab==4.4.3", requirements)
+        for pin in (
+            "Pillow==12.3.0",
+            "reportlab==4.4.3",
+            "python-docx==1.2.0",
+            "pdfplumber==0.11.9",
+            "pypdfium2==5.12.1",
+            "pypdf==5.9.0",
+        ):
+            self.assertIn(pin, requirements)
 
     def test_development_requirements_include_runtime_dependencies(self):
         requirements = (ROOT / "requirements-dev.txt").read_text(encoding="utf-8")
@@ -30,8 +37,7 @@ class RuntimeDependencyContractTests(unittest.TestCase):
         for relative in ("bootstrap/doctor.ps1", "plugins/obsidian-manuscript-publisher/bootstrap/doctor.ps1"):
             doctor = (ROOT / relative).read_text(encoding="utf-8")
             self.assertIn("python_dependency_missing", doctor)
-            self.assertIn("Pillow==11.3.0", doctor)
-            self.assertIn("reportlab==4.4.3", doctor)
+            self.assertIn("six pinned document packages", doctor)
 
 
 if __name__ == "__main__":

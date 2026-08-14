@@ -34,6 +34,10 @@ class CustomManuscriptTests(unittest.TestCase):
             for key in ("markdown", "html", "pdf"):
                 self.assertTrue(Path(package[key]).is_file())
             self.assertIn("본문입니다.", Path(package["markdown"]).read_text(encoding="utf-8"))
+            from pypdf import PdfReader
+            text = "\n".join(page.extract_text() or "" for page in PdfReader(package["pdf"]).pages)
+            self.assertIn("본문입니다", text)
+            self.assertGreater(len(PdfReader(package["pdf"]).pages), 0)
 
     def test_does_not_accept_raw_markup_as_content(self):
         with tempfile.TemporaryDirectory() as directory:

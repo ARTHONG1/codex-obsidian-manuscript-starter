@@ -28,7 +28,7 @@ if ($null -eq $stage) {
 $pythonState = Test-PythonRuntime
 if (-not $pythonState.Ready) {
     if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
-        throw "python_dependency_missing: Python 3.12 and Pillow==11.3.0/reportlab==4.4.3 are required. Install Python from https://www.python.org/downloads/windows/ and rerun this command."
+        throw "python_dependency_missing: Python 3.12 with the six pinned document packages is required. Install Python from https://www.python.org/downloads/windows/ and rerun this command."
     }
     if ($pythonState.Reason -eq "python_missing") {
         & winget.exe install --id Python.Python.3.12 --exact --accept-source-agreements --accept-package-agreements
@@ -45,7 +45,7 @@ if (-not $pythonState.Ready) {
         if ($LASTEXITCODE -ne 0) { throw "python_dependency_missing: package installation failed; rerun the same command after reviewing pip output." }
         $pythonState = Test-PythonRuntime -PythonPath $pythonState.Python
     }
-    if (-not $pythonState.Ready) { throw "python_dependency_missing: Pillow==11.3.0 and reportlab==4.4.3 are still unavailable." }
+    if (-not $pythonState.Ready) { throw "python_dependency_missing: the exact Python runtime contract is still unavailable; rerun doctor and review the reported missing or mismatched packages." }
 }
 Set-InstallStage -RuntimeRoot $paths.RuntimeRoot -Stage "dependency_ready" | Out-Null
 

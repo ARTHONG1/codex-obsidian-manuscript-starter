@@ -14,7 +14,7 @@ Import-Module (Join-Path $bootstrapRoot "lib\LocalRest.psm1") -Force
 Import-Module (Join-Path $bootstrapRoot "lib\PublicationLibrary.psm1") -Force
 
 $pythonState = Test-PythonRuntime
-if (-not $pythonState.Ready) { throw "python_dependency_missing: Python 3.12 with Pillow==11.3.0 and reportlab==4.4.3 is required; rerun the installer or install the official Python package and retry." }
+if (-not $pythonState.Ready) { throw "python_dependency_missing: Python 3.12 and the six pinned document packages are required; rerun the installer and review the runtime probe result." }
 
 $runtime = if ($RuntimeConfigPath) { Get-RuntimeConfig -RuntimeConfigPath $RuntimeConfigPath } else { Get-RuntimeConfig }
 if (-not (Test-Path -LiteralPath $runtime.vaultPath -PathType Container)) { throw "Configured vault does not exist: $($runtime.vaultPath)" }

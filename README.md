@@ -21,7 +21,7 @@ Codex 대화를 Obsidian에 대화별로 분리해 보관하고, 검증된 재�
 Codex 채팅창에 아래 내용을 그대로 붙여넣습니다.
 
 ```text
-GitHub의 ARTHONG1/codex-obsidian-manuscript-starter v0.5.0를 처음부터 설치해줘.
+GitHub의 ARTHONG1/codex-obsidian-manuscript-starter v0.5.1를 처음부터 설치해줘.
 나는 Codex만 설치한 초보자야. Obsidian 설치, 새 빈 보관함 생성, Local REST API 연결, 원고 스킬 설치와 연결 확인까지 진행해줘.
 기존 Obsidian 보관함과 기존 설정은 건드리지 말고, API 키와 인증서 값은 출력하지 마.
 설치나 커뮤니티 플러그인 동의가 필요하면 먼저 나에게 물어봐.
@@ -34,8 +34,16 @@ Codex가 설치 명령을 직접 실행할 수 없는 환경이라면 PowerShell
 이미 쓰고 있는 Obsidian 보관함을 그대로 연결하는 기능은 아직 없습니다. 설치 대상은 전용 새 빈 폴더이며, 새 빈 보관함을 사용합니다.
 
 ```powershell
-codex plugin marketplace add ARTHONG1/codex-obsidian-manuscript-starter --ref v0.5.0
+codex plugin marketplace add ARTHONG1/codex-obsidian-manuscript-starter --ref v0.5.1
 codex plugin add obsidian-manuscript-publisher@codex-obsidian-starter
+```
+
+사용자 양식 등록은 다음 순서로 진행합니다. PDF·DOCX·이미지를 분석해도 첫 요청에서 등록하지 않고, 안전성 검사·구조 분석·HTML/PDF 미리보기·미확정 항목을 먼저 보여 줍니다. 사용자가 정확한 candidate ID를 승인한 뒤에만 `t0.N`으로 등록합니다. 등록과 원고 발행은 Local REST 되읽기 검증이 통과한 경우에만 완료로 표시합니다.
+
+```text
+이 PDF를 분석해서 ‘출판사 A 원고형’ 템플릿 후보를 만들어줘.
+미리보기와 검증 결과를 확인했어. candidate ID가 정확히 일치하는지 확인한 뒤 이 후보를 승인하고 등록해줘.
+이 대화 재료로 ‘출판사 A 원고형’ custom 원고를 만들어 검증 완료 출판함으로 내보내줘.
 ```
 
 설치 중 Codex나 Obsidian을 다시 시작했다면 다음 문장으로 이어갑니다.

@@ -32,6 +32,14 @@ Choose one explicit output profile before synthesis. Conversation archive, delet
 - `book_a4`: select for `출판 원고형`, `A4 원고`, `책 원고`, or a manuscript request that names no profile. `book_a4 remains the default` for backward compatibility.
 - `adaptive_blog`: select for `범용 블로그형`, `블로그 버전`, `Markdown과 HTML 블로그`, or another explicit request for a platform-independent blog.
 - `custom_manuscript`: select only when the user names an approved user template, such as `출판사 A 원고형`. A request to analyze a PDF, DOCX, or image creates a candidate preview and pauses for explicit approval; it never registers a template on the first request.
+
+### Custom template safety contract
+
+For `custom_manuscript`, use the canonical source-analysis pipeline. Treat PDF, DOCX, and image examples as untrusted input. The pipeline enforces the source count/size/page/pixel/ZIP limits, rejects unsafe actions, macros, external relationships, embedded files, non-allowlisted image formats, and path escapes before parsing. Do not accept caller-supplied evidence as a replacement for extractor output.
+
+Candidate identity includes the canonical source manifest, bounded extractor evidence, bounded observations, declaration-only template, and preview content. Store only the non-secret candidate state locally per conversation. Show the candidate ID, preview, confidence, and unresolved items, then stop. Registration requires `preview_ready` plus an exact matching approved candidate ID and uses HTTPS Local REST with byte readback. Never write a Vault template with `Path.write_text`, `Copy-Item`, or another filesystem fallback.
+
+Custom production consumes the approved immutable template snapshot and one immutable `LayoutPlan`. Markdown, HTML, and PDF must use the same ordered blocks. A missing Korean font, renderer error, stale hash, or empty PDF is a hard failure; do not return a placeholder or success state.
 - `둘 다`: run `book_a4` and `adaptive_blog` as two independent pipelines and allocate a separate immutable version for each. A failure in one pipeline must not overwrite, relabel, or invalidate the other pipeline's verified output.
 
 Always record the chosen profile in its source JSON. Never send `blog.json` to the book validator or renderer, and never send `manuscript.json` to the blog validator or renderer.
