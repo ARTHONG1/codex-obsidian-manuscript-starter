@@ -148,6 +148,12 @@ AI가 만든 이미지는 실제 화면이라고 속이지 않습니다. 실제 
 - 대화·원고 저장은 Local REST API의 읽기 검증이 통과한 뒤에만 완료로 표시합니다.
 - 화면에 API 키가 노출됐다면 `Reset all crypto`로 키를 교체합니다. `Re-generate certificates`만으로는 API 키가 바뀌지 않습니다.
 
+## 설치 기준
+
+설치기는 사용자 보관함과 분리된 제품 소유 Python 3.12 가상환경을 사용합니다. 재시작 뒤에는 schema-v2 runtime을 다시 읽고, Local REST가 준비될 때까지 재시도합니다. WinGet이 없으면 Obsidian과 Python은 공식 설치 페이지에서 먼저 설치해야 합니다.
+
+직접 런타임 패키지는 `Pillow==12.3.0`, `reportlab==4.4.3`, `python-docx==1.2.0`, `pdfplumber==0.11.9`, `pypdfium2==5.12.1`, `pypdf==5.9.0` 여섯 개이며, 나머지 전이 의존성은 `requirements.lock.txt`의 SHA-256 해시로 고정합니다. 설치 경로와 재시작 문장은 [설치 안내](docs/INSTALL_GUIDE.md), beginner prompt는 [INSTALL_PROMPT.md](INSTALL_PROMPT.md)에 있습니다.
+
 ## 저작권·브랜드·비제휴 안내
 
 프로젝트 소스 코드는 [`LICENSE`](LICENSE)의 MIT License로 배포합니다. 타사 라이선스는 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)에 기록합니다.

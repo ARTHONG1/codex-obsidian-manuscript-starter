@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import re
 import unittest
 
 
@@ -15,6 +16,62 @@ EDITORIAL_PROFILE = (ROOT / "plugins/obsidian-manuscript-publisher/skills/obsidi
 
 
 class DocumentationContractTests(unittest.TestCase):
+    WORKFLOW_REFERENCES = (
+        "conversation-workflow.md",
+        "book-a4-workflow.md",
+        "adaptive-blog-workflow.md",
+        "custom-manuscript-workflow.md",
+        "deletion-workflow.md",
+        "legacy-book-contracts.md",
+    )
+
+    def test_skill_is_progressively_disclosed_router(self):
+        lines = [line for line in SKILL.splitlines() if line.strip()]
+        self.assertLessEqual(len(lines), 180)
+        for reference in self.WORKFLOW_REFERENCES:
+            self.assertIn(reference, SKILL)
+        self.assertIn("master-editorial-profile.md", SKILL)
+        self.assertIn("publication-library.md", SKILL)
+
+    def test_skill_routes_every_public_trigger_to_a_direct_reference(self):
+        routes = {
+            "이 프로젝트를 원고 프로젝트로 등록해줘": "conversation-workflow.md",
+            "이 대화 전체를 옵시디언에 저장해줘": "conversation-workflow.md",
+            "이 대화 원고 재료 최신화해줘": "conversation-workflow.md",
+            "이 대화의 옵시디언 자료를 전부 삭제해줘": "deletion-workflow.md",
+            "출판 원고형": "book-a4-workflow.md",
+            "범용 블로그형": "adaptive-blog-workflow.md",
+            "출판사 A 원고형": "custom-manuscript-workflow.md",
+            "기존 양식": "legacy-book-contracts.md",
+            "레거시 양식": "legacy-book-contracts.md",
+            "V1": "legacy-book-contracts.md",
+            "V2": "legacy-book-contracts.md",
+            "바탕화면 출판함만 다시 만들어줘": "publication-library.md",
+        }
+        for trigger, reference in routes.items():
+            self.assertIn(trigger, SKILL)
+            self.assertLess(
+                SKILL.index(trigger),
+                SKILL.index(reference),
+                msg=f"{trigger!r} must route directly to {reference}",
+            )
+
+    def test_router_declares_v3_default_once_and_isolates_legacy_formulas(self):
+        self.assertEqual(len(re.findall(r"template_version:\s*3", SKILL)), 1)
+        self.assertNotRegex(SKILL, r"N Steps require exactly N-1 tips")
+        self.assertNotRegex(SKILL, r"Each V2 Step body contains exactly two or three sentences")
+
+    def test_router_keeps_forward_pressure_safety_prohibitions(self):
+        for prohibition in (
+            "Never scan all Codex conversations",
+            "Never overwrite a finished version",
+            "Never call unverified output complete",
+            "Never delete during archive, refresh, synthesis, render, or publish",
+            "Do not use direct filesystem writes",
+            "never send a Local REST API key",
+        ):
+            self.assertIn(prohibition, SKILL)
+
     def test_plugin_default_prompt_contract(self):
         manifest = json.loads(PLUGIN_MANIFEST.read_text(encoding="utf-8"))
         prompts = manifest["interface"]["defaultPrompt"]

@@ -9,3 +9,9 @@
 | REST 연결 실패 | Obsidian을 열고 `옵시디언 연결 상태를 점검해줘.`라고 입력합니다. HTTP 서버를 외부에 공개하지 않습니다. |
 | 기존 보관함 오류 | 기존 폴더를 비우지 말고 새 빈 보관함을 선택합니다. |
 | API 키 노출 | Obsidian Local REST 설정에서 `Reset all crypto`를 실행합니다. 키를 대화나 문서에 복사하지 않습니다. |
+
+| runtime 재시작 후 이어가기 | schema-v2 runtime을 다시 읽고 제품 소유 venv와 남은 설치 단계를 재검증합니다. |
+| Local REST 설정이 비어 있거나 부분적으로 저장됨 | Obsidian을 열어 둔 상태에서 준비 점검을 다시 요청합니다. 준비 확인은 일시적인 파일·JSON 상태를 재시도합니다. |
+| 제품 Python 환경 확인 | 전역 패키지를 수정하지 말고 제품 소유 venv에서 `requirements.lock.txt`의 해시 잠금 세트를 사용합니다. |
+
+검증 명령은 `python -m unittest discover -s tests -t tests`, `Invoke-Pester -Script .\tests\InstallerContract.Tests.ps1`, `Invoke-Pester -Script .\tests\SecretScan.Tests.ps1`입니다.
