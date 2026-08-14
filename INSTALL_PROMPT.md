@@ -3,11 +3,11 @@
 이 파일의 아래 프롬프트 전체를 복사해 Codex 채팅창에 붙여넣습니다.
 
 ```text
-이 저장소의 최신 안정 릴리스 v0.4.0 기준으로 Codex Obsidian Manuscript Starter를 Windows에 처음부터 설치해줘.
+이 저장소의 최신 안정 릴리스 v0.5.1 기준으로 Codex Obsidian Manuscript Starter를 Windows에 처음부터 설치해줘.
 
 나는 Codex만 설치한 초보자다. 설치 중에는 다음 원칙을 지켜줘.
 
-1. GitHub 저장소는 ARTHONG1/codex-obsidian-manuscript-starter만 사용하고, v0.4.0 release ref를 고정해줘.
+1. GitHub 저장소는 ARTHONG1/codex-obsidian-manuscript-starter만 사용하고, v0.5.1 release ref를 고정해줘.
 2. 필요한 Codex marketplace/plugin 설치 명령을 실행해줘. 명령 실행 전 무엇을 설치하는지와 동의를 구하는 이유를 설명해줘.
 3. Obsidian이 없으면 WinGet이 있을 때만 공식 Obsidian 패키지를 설치해줘. WinGet이 없으면 https://obsidian.md/download 공식 페이지를 안내하고 멈춰줘.
 4. Python이 없으면 WinGet이 있을 때만 공식 Python 3.12 패키지를 설치해줘. WinGet이 없으면 https://www.python.org/downloads/windows/ 공식 페이지를 안내하고 멈춰줘.

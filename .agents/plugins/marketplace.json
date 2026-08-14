@@ -9,7 +9,7 @@
       "source": {
         "source": "local",
         "path": "./plugins/obsidian-manuscript-publisher",
-        "ref": "v0.4.0"
+        "ref": "v0.5.1"
       },
       "policy": {
         "installation": "AVAILABLE",
