@@ -331,6 +331,37 @@ Describe "Python 3.12 runtime contract" {
         $pip.Executable | Should Not Be "C:\base\python.exe"
     }
 
+    It "revalidates the candidate Python executable immediately before invoking the process runner" {
+        $root = Join-Path $TestDrive "candidate-reparse"
+        $lock = Join-Path $TestDrive "candidate-reparse.lock"
+        $probePath = Join-Path $TestDrive "verify.py"
+        $realScripts = Join-Path $TestDrive "real-scripts"
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        New-Item -ItemType Directory -Path $realScripts -Force | Out-Null
+        Set-Content -Path $lock -Value "new"
+        New-Item -ItemType File -Path $probePath -Force | Out-Null
+        $candidatePython = $null
+        $runnerCalls = New-Object System.Collections.ArrayList
+        $runner = {
+            param([string]$Executable, [string[]]$Arguments)
+            [void]$runnerCalls.Add([pscustomobject]@{ Executable = $Executable; Arguments = $Arguments })
+            if ($Arguments -contains "venv") {
+                $candidate = $Arguments[$Arguments.Count - 1]
+                New-Item -ItemType Directory -Path $candidate -Force | Out-Null
+                $candidatePython = Join-Path $candidate "Scripts\python.exe"
+                New-Item -ItemType Junction -Path (Join-Path $candidate "Scripts") -Target $realScripts -ErrorAction Stop | Out-Null
+            }
+            [pscustomobject]@{ ExitCode = 0; Output = ""; Error = "" }
+        }.GetNewClosure()
+
+        try {
+            [void](New-VerifiedManagedVenv -BasePython (Join-Path $TestDrive "base-python.exe") -RuntimeRoot $root `
+                -RequirementsLockPath $lock -ProbePath $probePath -ProcessRunner $runner)
+        } catch {}
+        ($runnerCalls | Where-Object { $_.Arguments -contains "venv" }).Count | Should Be 1
+        ($runnerCalls | Where-Object { $_.Arguments -contains "pip" }).Count | Should Be 0
+    }
+
     It "rejects a runtime root beneath a reparse point" {
         $real = Join-Path $TestDrive "real"
         $reparse = Join-Path $TestDrive "reparse"
@@ -359,6 +390,19 @@ Describe "Python 3.12 runtime contract" {
 
         $result.Ready | Should Be $false
         $result.Reason | Should Be "probe_failed"
+    }
+
+    It "captures large stdout and stderr concurrently without losing either stream" {
+        $powershell = (Get-Command powershell.exe).Source
+        $script = '1..20000 | ForEach-Object { Write-Output ("OUT-" + $_); [Console]::Error.WriteLine("ERR-" + $_) }; exit 7'
+
+        $result = & (Get-Command Test-ManagedPythonRuntime).Module {
+            Invoke-DefaultProcessRunner $args[0] @("-NoProfile", "-NonInteractive", "-Command", $args[1])
+        } $powershell $script
+
+        $result.ExitCode | Should Be 7
+        $result.Output | Should Match "OUT-20000"
+        $result.Error | Should Match "ERR-20000"
     }
 
     It "reuses a valid active runtime without creating a candidate" {

@@ -27,6 +27,18 @@ function Test-NoReparsePointInPath {
     }
 }
 
+function Assert-ManagedPythonExecutable {
+    param([Parameter(Mandatory = $true)] [string]$PythonPath)
+    $canonical = ConvertTo-CanonicalPath $PythonPath
+    if ([string]::IsNullOrWhiteSpace($canonical) -or
+        -not [IO.Path]::IsPathRooted($canonical) -or
+        -not (Test-Path -LiteralPath $canonical -PathType Leaf) -or
+        -not (Test-NoReparsePointInPath $canonical)) {
+        throw "Managed Python executable is unsafe."
+    }
+    return $canonical
+}
+
 function Test-CanonicalCandidate {
     param(
         [Parameter(Mandatory = $true)] [string]$Candidate,
@@ -182,10 +194,14 @@ function Invoke-DefaultProcessRunner {
         if ($value -match '[\s"]') { '"' + ($value -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"' } else { $value }
     }) -join " ")
     if (-not $process.Start()) { throw "Process start failed." }
-    $output = $process.StandardOutput.ReadToEnd()
-    $errorOutput = $process.StandardError.ReadToEnd()
+    $outputTask = $process.StandardOutput.ReadToEndAsync()
+    $errorTask = $process.StandardError.ReadToEndAsync()
     $process.WaitForExit()
-    return [pscustomobject]@{ Output = $output; Error = $errorOutput; ExitCode = $process.ExitCode }
+    return [pscustomobject]@{
+        Output = $outputTask.Result
+        Error = $errorTask.Result
+        ExitCode = $process.ExitCode
+    }
 }
 
 function Get-ManagedVenvPaths {
@@ -230,7 +246,8 @@ function Test-ManagedPythonRuntime {
     if ($RequirementsHash -notmatch '^[0-9a-f]{64}$') { throw "Invalid requirements hash." }
     if ($null -eq $ProcessRunner) { $ProcessRunner = ${function:Invoke-DefaultProcessRunner} }
     try {
-        $result = & $ProcessRunner $PythonPath @($ProbePath, "--requirements-hash", $RequirementsHash)
+        $safePythonPath = Assert-ManagedPythonExecutable $PythonPath
+        $result = & $ProcessRunner $safePythonPath @($ProbePath, "--requirements-hash", $RequirementsHash)
         if ($null -eq $result -or [int]$result.ExitCode -ne 0) {
             throw "Probe exited unsuccessfully."
         }
@@ -283,7 +300,8 @@ function New-VerifiedManagedVenv {
     try {
         $r = & $ProcessRunner $BasePython @("-m", "venv", $candidate)
         if ($null -eq $r -or [int]$r.ExitCode -ne 0) { throw "venv creation failed." }
-        $r = & $ProcessRunner $candidatePython @("-m", "pip", "install", "--disable-pip-version-check", "--require-hashes", "--only-binary=:all:", "-r", $RequirementsLockPath)
+        $safeCandidatePython = Assert-ManagedPythonExecutable $candidatePython
+        $r = & $ProcessRunner $safeCandidatePython @("-m", "pip", "install", "--disable-pip-version-check", "--require-hashes", "--only-binary=:all:", "-r", $RequirementsLockPath)
         if ($null -eq $r -or [int]$r.ExitCode -ne 0) { throw "dependency installation failed." }
         $candidateProbe = Test-ManagedPythonRuntime -PythonPath $candidatePython -RequirementsHash $hash -ProbePath $ProbePath -ProcessRunner $ProcessRunner
         if (-not $candidateProbe.Ready -or [string]$candidateProbe.RequirementsHash -ne $hash) { throw "candidate verification failed." }
