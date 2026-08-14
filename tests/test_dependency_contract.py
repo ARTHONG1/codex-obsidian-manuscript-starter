@@ -43,7 +43,13 @@ def _normalized_distribution(name: str) -> str:
     return name.replace("-", "_")
 
 
-def _build_wheel_bytes(name: str, version: str, tag: str) -> bytes:
+def _build_wheel_bytes(
+    name: str,
+    version: str,
+    tag: str,
+    *,
+    wheel_metadata: str | None = None,
+) -> bytes:
     distribution = _normalized_distribution(name)
     dist_info = f"{distribution}-{version}.dist-info"
     metadata = (
@@ -51,7 +57,7 @@ def _build_wheel_bytes(name: str, version: str, tag: str) -> bytes:
         f"Name: {name}\n"
         f"Version: {version}\n"
     )
-    wheel = (
+    wheel = wheel_metadata or (
         "Wheel-Version: 1.0\n"
         "Generator: test-suite\n"
         "Root-Is-Purelib: true\n"
@@ -226,6 +232,74 @@ class RuntimeLockGeneratorTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "unsupported wheel tag"):
                     generator.wheel_identity(wheel_dir / filename)
                 (wheel_dir / filename).unlink()
+
+    def test_rejects_missing_wheel_metadata(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            wheel_path = _write_wheel(
+                Path(temp_dir),
+                "Pillow-12.3.0-cp312-cp312-win_amd64.whl",
+                "Pillow",
+                "12.3.0",
+                "cp312-cp312-win_amd64",
+                content=_build_wheel_bytes(
+                    "Pillow",
+                    "12.3.0",
+                    "cp312-cp312-win_amd64",
+                    wheel_metadata="Wheel-Version: 1.0\n",
+                ),
+            )
+            with self.assertRaisesRegex(ValueError, "invalid WHEEL metadata"):
+                generator.wheel_identity(wheel_path)
+
+    def test_rejects_malformed_or_unsupported_wheel_metadata_tag(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            wheel_dir = Path(temp_dir)
+            cases = (
+                (
+                    "Wheel-Version: 1.0\n"
+                    "Generator: test-suite\n"
+                    "Root-Is-Purelib: true\n"
+                    "Tag: cp312-cp312\n",
+                    "malformed",
+                ),
+                (
+                    "Wheel-Version: 1.0\n"
+                    "Generator: test-suite\n"
+                    "Root-Is-Purelib: true\n"
+                    "Tag: cp311-cp311-win_amd64\n",
+                    "unsupported",
+                ),
+            )
+            for wheel_metadata, label in cases:
+                with self.subTest(label=label):
+                    wheel_path = _write_wheel(
+                        wheel_dir,
+                        "Pillow-12.3.0-cp312-cp312-win_amd64.whl",
+                        "Pillow",
+                        "12.3.0",
+                        "cp312-cp312-win_amd64",
+                        content=_build_wheel_bytes(
+                            "Pillow",
+                            "12.3.0",
+                            "cp312-cp312-win_amd64",
+                            wheel_metadata=wheel_metadata,
+                        ),
+                    )
+                    with self.assertRaisesRegex(ValueError, "invalid WHEEL metadata"):
+                        generator.wheel_identity(wheel_path)
+                    wheel_path.unlink()
+
+    def test_rejects_filename_and_wheel_metadata_tag_mismatch(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            wheel_path = _write_wheel(
+                Path(temp_dir),
+                "Pillow-12.3.0-cp312-cp312-win_amd64.whl",
+                "Pillow",
+                "12.3.0",
+                "py3-none-any",
+            )
+            with self.assertRaisesRegex(ValueError, "wheel filename does not match WHEEL Tag"):
+                generator.wheel_identity(wheel_path)
 
     def test_rejects_filename_metadata_identity_mismatch(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -50,6 +50,11 @@ def parse_wheel_tags(path: Path) -> tuple[str, str, str]:
     if len(parts) != 4:
         raise ValueError(f"invalid wheel filename: {path.name}")
     tag = (parts[1], parts[2], parts[3])
+    _validate_wheel_tag(tag, f"wheel filename: {path.name}")
+    return tag
+
+
+def _validate_wheel_tag(tag: tuple[str, str, str], source: str) -> None:
     python_tag, abi_tag, platform_tag = tag
     is_pure_python = (
         python_tag == "py3"
@@ -70,8 +75,7 @@ def parse_wheel_tags(path: Path) -> tuple[str, str, str]:
     )
     if not (is_pure_python or abi3_compatible or is_cp312):
         rendered = "-".join(tag)
-        raise ValueError(f"unsupported wheel tag: {rendered}")
-    return tag
+        raise ValueError(f"unsupported wheel tag in {source}: {rendered}")
 
 
 def parse_wheel_filename(path: Path) -> tuple[str, str]:
@@ -83,6 +87,7 @@ def parse_wheel_filename(path: Path) -> tuple[str, str]:
 
 
 def wheel_identity(path: Path) -> tuple[str, str]:
+    filename_tag = parse_wheel_tags(path)
     filename_name, filename_version = parse_wheel_filename(path)
     try:
         with zipfile.ZipFile(path) as archive:
@@ -91,9 +96,32 @@ def wheel_identity(path: Path) -> tuple[str, str]:
                 for name in archive.namelist()
                 if name.endswith(".dist-info/METADATA")
             )
+            wheel_name = next(
+                name
+                for name in archive.namelist()
+                if name.endswith(".dist-info/WHEEL")
+            )
             message = message_from_bytes(archive.read(metadata_name))
+            wheel_message = message_from_bytes(archive.read(wheel_name))
     except (StopIteration, OSError, zipfile.BadZipFile) as error:
         raise ValueError(f"invalid wheel metadata: {path.name}") from error
+    wheel_version = wheel_message.get("Wheel-Version")
+    wheel_tags = wheel_message.get_all("Tag") or []
+    if not wheel_version or len(wheel_tags) != 1:
+        raise ValueError(f"invalid WHEEL metadata: {path.name}")
+    internal_parts = wheel_tags[0].strip().split("-")
+    if len(internal_parts) != 3 or any(not part for part in internal_parts):
+        raise ValueError(f"invalid WHEEL metadata: {path.name}")
+    internal_tag = tuple(internal_parts)
+    try:
+        _validate_wheel_tag(internal_tag, f"WHEEL metadata: {path.name}")
+    except ValueError as error:
+        raise ValueError(f"invalid WHEEL metadata: {path.name}") from error
+    if internal_tag != filename_tag:
+        raise ValueError(
+            f"wheel filename does not match WHEEL Tag: {path.name} "
+            f"({'-'.join(filename_tag)} != {'-'.join(internal_tag)})"
+        )
     name = message.get("Name")
     version = message.get("Version")
     if not name or not version:
