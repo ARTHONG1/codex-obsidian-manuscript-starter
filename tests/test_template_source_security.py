@@ -1,5 +1,6 @@
 import importlib.util
 import hashlib
+import os
 import sys
 import tempfile
 import unittest
@@ -152,6 +153,70 @@ class TemplateSourceSecurityTests(unittest.TestCase):
             with self.assertRaisesRegex(template_source.TemplateSourceError, "unsafe_staging_parent"):
                 with template_source.snapshot_source_set([source], staging_parent=link):
                     pass
+
+    def test_snapshot_revalidates_source_identity_before_copy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "example.png"
+            target = root / "redirected.png"
+            source.write_bytes(b"\x89PNG\r\n\x1a\noriginal")
+            target.write_bytes(b"\x89PNG\r\n\x1a\nredirected")
+            original_inspect = template_source.inspect_source_set
+
+            def inspect_then_replace(paths):
+                result = original_inspect(paths)
+                os.replace(target, source)
+                return result
+
+            template_source.inspect_source_set = inspect_then_replace
+            try:
+                with self.assertRaisesRegex(
+                    template_source.TemplateSourceError,
+                    "source_changed_during_snapshot",
+                ):
+                    with template_source.snapshot_source_set([source], staging_parent=root):
+                        pass
+            finally:
+                template_source.inspect_source_set = original_inspect
+
+    def test_snapshot_cleanup_fails_closed_when_staging_parent_is_replaced(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            staging_parent = root / "staging"
+            staging_parent.mkdir()
+            source = root / "example.png"
+            source.write_bytes(b"\x89PNG\r\n\x1a\ncontent")
+            attacker = root / "attacker"
+            attacker.mkdir()
+            with template_source.snapshot_source_set([source], staging_parent=staging_parent) as snapshots:
+                owned = snapshots[0].path.parent
+                backup = root / "staging-backup"
+                os.rename(staging_parent, backup)
+                staging_parent.mkdir()
+                (staging_parent / "sentinel.txt").write_text("keep", encoding="utf-8")
+            self.assertTrue((root / "staging-backup" / owned.name).is_dir())
+            self.assertFalse((attacker / owned.name).exists())
+            self.assertTrue((staging_parent / "sentinel.txt").is_file())
+
+    def test_post_copy_filesystem_errors_are_path_free_template_errors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "example.png"
+            source.write_bytes(b"\x89PNG\r\n\x1a\ncontent")
+            original_hash = template_source._hash_file
+
+            def fail_with_absolute_path(path):
+                raise OSError(f"permission denied: {Path(path).resolve()}")
+
+            template_source._hash_file = fail_with_absolute_path
+            try:
+                with self.assertRaises(template_source.TemplateSourceError) as raised:
+                    with template_source.snapshot_source_set([source], staging_parent=root):
+                        pass
+            finally:
+                template_source._hash_file = original_hash
+            self.assertEqual(str(raised.exception), "snapshot_filesystem_error")
+            self.assertNotIn(str(root), str(raised.exception))
 
 
 if __name__ == "__main__":
