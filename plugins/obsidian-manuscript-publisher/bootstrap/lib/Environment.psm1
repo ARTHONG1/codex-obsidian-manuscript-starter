@@ -2,19 +2,83 @@
 $ErrorActionPreference = "Stop"
 Import-Module (Join-Path $PSScriptRoot "PublicationLibrary.psm1") -Force
 
+function ConvertTo-InstallPath {
+    param([Parameter(Mandatory = $true)] [string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        throw "A non-empty filesystem path is required."
+    }
+    $fullPath = [IO.Path]::GetFullPath($Path)
+    $pathRoot = [IO.Path]::GetPathRoot($fullPath)
+    if ([string]::Equals($fullPath.TrimEnd("\"), $pathRoot.TrimEnd("\"), [StringComparison]::OrdinalIgnoreCase)) {
+        return $pathRoot
+    }
+    return $fullPath.TrimEnd("\")
+}
+
 function Test-InstallPathsOverlap {
     param(
         [Parameter(Mandatory = $true)] [string]$FirstPath,
         [Parameter(Mandatory = $true)] [string]$SecondPath
     )
 
-    $first = [IO.Path]::GetFullPath($FirstPath).TrimEnd("\")
-    $second = [IO.Path]::GetFullPath($SecondPath).TrimEnd("\")
+    $first = ConvertTo-InstallPath -Path $FirstPath
+    $second = ConvertTo-InstallPath -Path $SecondPath
     if ([string]::Equals($first, $second, [StringComparison]::OrdinalIgnoreCase)) {
         return $true
     }
     return $first.StartsWith($second + "\", [StringComparison]::OrdinalIgnoreCase) -or
         $second.StartsWith($first + "\", [StringComparison]::OrdinalIgnoreCase)
+}
+
+function Assert-InstallPathSetIsSafe {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)] [string]$VaultPath,
+        [AllowNull()] [string]$RuntimeRoot,
+        [AllowNull()] [string]$PublicationRoot
+    )
+
+    $paths = [ordered]@{
+        Vault = ConvertTo-InstallPath -Path $VaultPath
+        Runtime = if ([string]::IsNullOrWhiteSpace($RuntimeRoot)) { $null } else { ConvertTo-InstallPath -Path $RuntimeRoot }
+        Publication = $null
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PublicationRoot)) {
+        $paths.Publication = Assert-PublicationRootIsSafe -PublicationRoot $PublicationRoot
+    }
+
+    $vaultDriveRoot = [IO.Path]::GetPathRoot($paths.Vault)
+    if ([string]::Equals($paths.Vault.TrimEnd("\"), $vaultDriveRoot.TrimEnd("\"), [StringComparison]::OrdinalIgnoreCase)) {
+        throw "VaultPath cannot be a drive root."
+    }
+    Assert-NoExistingReparsePoint -Path $paths.Vault
+    if ($paths.Runtime) {
+        Assert-NoExistingReparsePoint -Path $paths.Runtime
+    }
+    if ($paths.Publication) {
+        Assert-NoExistingReparsePoint -Path $paths.Publication
+    }
+
+    $pairs = @(
+        @{ First = "VaultPath"; FirstPath = $paths.Vault; Second = "RuntimeRoot"; SecondPath = $paths.Runtime },
+        @{ First = "VaultPath"; FirstPath = $paths.Vault; Second = "PublicationRoot"; SecondPath = $paths.Publication },
+        @{ First = "RuntimeRoot"; FirstPath = $paths.Runtime; Second = "PublicationRoot"; SecondPath = $paths.Publication }
+    )
+    foreach ($pair in $pairs) {
+        if ([string]::IsNullOrWhiteSpace([string]$pair.FirstPath) -or [string]::IsNullOrWhiteSpace([string]$pair.SecondPath)) {
+            continue
+        }
+        if (Test-InstallPathsOverlap -FirstPath $pair.FirstPath -SecondPath $pair.SecondPath) {
+            throw "$($pair.First) and $($pair.Second) must not overlap."
+        }
+    }
+
+    return [pscustomobject]@{
+        VaultPath = $paths.Vault
+        RuntimeRoot = $paths.Runtime
+        PublicationRoot = $paths.Publication
+    }
 }
 
 function Resolve-InstallPaths {
@@ -36,21 +100,14 @@ function Resolve-InstallPaths {
     $resolvedVault = [IO.Path]::GetFullPath($VaultPath)
     $resolvedRuntime = [IO.Path]::GetFullPath($RuntimeRoot)
     $resolvedPublication = Resolve-PublicationRoot -PublicationRoot $PublicationRoot
-    $root = [IO.Path]::GetPathRoot($resolvedVault)
-    if ($resolvedVault.TrimEnd("\\") -eq $root.TrimEnd("\\")) {
-        throw "VaultPath cannot be a drive root."
-    }
-
-    if (Test-InstallPathsOverlap -FirstPath $resolvedVault -SecondPath $resolvedPublication) {
-        throw "PublicationRoot and VaultPath must not overlap."
-    }
+    $safe = Assert-InstallPathSetIsSafe -VaultPath $resolvedVault -RuntimeRoot $resolvedRuntime -PublicationRoot $resolvedPublication
 
     [pscustomobject]@{
-        VaultPath = $resolvedVault
-        RuntimeRoot = $resolvedRuntime
-        RuntimeConfigPath = Join-Path $resolvedRuntime "runtime.json"
-        RestDataPath = Join-Path $resolvedVault ".obsidian\plugins\obsidian-local-rest-api\data.json"
-        PublicationRoot = $resolvedPublication
+        VaultPath = $safe.VaultPath
+        RuntimeRoot = $safe.RuntimeRoot
+        RuntimeConfigPath = Join-Path $safe.RuntimeRoot "runtime.json"
+        RestDataPath = Join-Path $safe.VaultPath ".obsidian\plugins\obsidian-local-rest-api\data.json"
+        PublicationRoot = $safe.PublicationRoot
     }
 }
 
@@ -61,11 +118,21 @@ function Save-RuntimeConfig {
         [psobject]$PythonRuntime
     )
 
+    $publicationRoot = $null
+    $publicationProperty = $Paths.PSObject.Properties["PublicationRoot"]
+    if ($publicationProperty) {
+        $publicationRoot = [string]$publicationProperty.Value
+    }
+    $runtimeForValidation = [string]$Paths.RuntimeRoot
+    if (-not [string]::Equals([IO.Path]::GetFileName([string]$Paths.RuntimeConfigPath), "runtime.json", [StringComparison]::OrdinalIgnoreCase)) {
+        $runtimeForValidation = $null
+    }
+    $safe = Assert-InstallPathSetIsSafe -VaultPath ([string]$Paths.VaultPath) -RuntimeRoot $runtimeForValidation -PublicationRoot $publicationRoot
     $runtimeRoot = [IO.Path]::GetFullPath([string]$Paths.RuntimeRoot)
     New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
     $payload = [ordered]@{
         schemaVersion = 2
-        vaultPath = [IO.Path]::GetFullPath([string]$Paths.VaultPath)
+        vaultPath = $safe.VaultPath
         restDataPath = [IO.Path]::GetFullPath([string]$Paths.RestDataPath)
         pythonExecutable = $null
         venvRoot = $null
@@ -82,13 +149,8 @@ function Save-RuntimeConfig {
         }
         $payload.requirementsHash = ([string]$PythonRuntime.RequirementsHash).ToLowerInvariant()
     }
-    $publicationProperty = $Paths.PSObject.Properties["PublicationRoot"]
-    if ($publicationProperty -and -not [string]::IsNullOrWhiteSpace([string]$publicationProperty.Value)) {
-        $publicationRoot = Resolve-PublicationRoot -PublicationRoot ([string]$publicationProperty.Value)
-        if (Test-InstallPathsOverlap -FirstPath $payload.vaultPath -SecondPath $publicationRoot) {
-            throw "PublicationRoot and VaultPath must not overlap."
-        }
-        $payload.publicationRoot = $publicationRoot
+    if ($safe.PublicationRoot) {
+        $payload.publicationRoot = $safe.PublicationRoot
     }
     Write-AtomicUtf8Json -Path $Paths.RuntimeConfigPath -Payload $payload
     return $Paths.RuntimeConfigPath
@@ -161,6 +223,10 @@ function Get-RuntimeConfig {
         throw "Runtime configuration has an unsupported schema. Re-run bootstrap\\install-windows.ps1."
     }
     $vaultPath = [IO.Path]::GetFullPath([string]$config.vaultPath)
+    $runtimeRoot = $null
+    if ([string]::Equals([IO.Path]::GetFileName($RuntimeConfigPath), "runtime.json", [StringComparison]::OrdinalIgnoreCase)) {
+        $runtimeRoot = [IO.Path]::GetFullPath((Split-Path -Parent $RuntimeConfigPath))
+    }
     $restDataPath = [IO.Path]::GetFullPath([string]$config.restDataPath)
     $expectedRestDirectory = [IO.Path]::GetFullPath((Join-Path $vaultPath ".obsidian\\plugins\\obsidian-local-rest-api"))
     $actualRestDirectory = [IO.Path]::GetFullPath((Split-Path -Parent $restDataPath))
@@ -170,11 +236,12 @@ function Get-RuntimeConfig {
     $publicationRoot = $null
     $publicationProperty = $config.PSObject.Properties["publicationRoot"]
     if ($publicationProperty -and -not [string]::IsNullOrWhiteSpace([string]$publicationProperty.Value)) {
-        $publicationRoot = Resolve-PublicationRoot -PublicationRoot ([string]$publicationProperty.Value)
-        if (Test-InstallPathsOverlap -FirstPath $vaultPath -SecondPath $publicationRoot) {
-            throw "Runtime configuration overlaps the selected vault. Re-run bootstrap\\install-windows.ps1."
-        }
+        $publicationRoot = [string]$publicationProperty.Value
     }
+    $safe = Assert-InstallPathSetIsSafe -VaultPath $vaultPath -RuntimeRoot $runtimeRoot -PublicationRoot $publicationRoot
+    $vaultPath = $safe.VaultPath
+    $runtimeRoot = $safe.RuntimeRoot
+    $publicationRoot = $safe.PublicationRoot
     if ($config.schemaVersion -eq 1) {
         return [pscustomobject]@{
             schemaVersion = 1
@@ -325,4 +392,4 @@ function Test-PythonRuntime {
     }
 }
 
-Export-ModuleMember -Function Resolve-InstallPaths, Save-RuntimeConfig, Get-RuntimeConfig, Convert-RuntimeConfigV1ToV2, Find-ObsidianExecutable, Get-InstallStagePath, Get-InstallStage, Set-InstallStage, Test-PythonRuntime
+Export-ModuleMember -Function Resolve-InstallPaths, Assert-InstallPathSetIsSafe, Save-RuntimeConfig, Get-RuntimeConfig, Convert-RuntimeConfigV1ToV2, Find-ObsidianExecutable, Get-InstallStagePath, Get-InstallStage, Set-InstallStage, Test-PythonRuntime

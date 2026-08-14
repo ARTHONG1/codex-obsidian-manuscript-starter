@@ -1000,6 +1000,60 @@ Describe "Beginner installer safety contract" {
 }
 
 Describe "Desktop publication library safety contract" {
+    It "rejects equality and nesting for every install-root pair" {
+        Import-Module $environmentModule -Force
+        $root = Join-Path $TestDrive "install-root-overlap"
+        $other = Join-Path $TestDrive "install-root-other"
+        New-Item -ItemType Directory -Path $root, $other -Force | Out-Null
+
+        foreach ($case in @(
+            @{ Name = "Vault equals Runtime"; Vault = $root; Runtime = $root; Publication = $other },
+            @{ Name = "Vault contains Runtime"; Vault = $root; Runtime = (Join-Path $root "runtime"); Publication = $other },
+            @{ Name = "Runtime contains Vault"; Vault = (Join-Path $root "vault"); Runtime = $root; Publication = $other },
+            @{ Name = "Vault equals Publication"; Vault = $root; Runtime = $other; Publication = $root },
+            @{ Name = "Vault contains Publication"; Vault = $root; Runtime = $other; Publication = (Join-Path $root "publication") },
+            @{ Name = "Publication contains Vault"; Vault = (Join-Path $root "vault"); Runtime = $other; Publication = $root },
+            @{ Name = "Runtime equals Publication"; Vault = $other; Runtime = $root; Publication = $root },
+            @{ Name = "Runtime contains Publication"; Vault = $other; Runtime = $root; Publication = (Join-Path $root "publication") },
+            @{ Name = "Publication contains Runtime"; Vault = $other; Runtime = (Join-Path $root "runtime"); Publication = $root }
+        )) {
+            $threw = $false
+            try {
+                Assert-InstallPathSetIsSafe -VaultPath $case.Vault -RuntimeRoot $case.Runtime -PublicationRoot $case.Publication
+            } catch {
+                $threw = $true
+            }
+            $threw | Should Be $true
+        }
+    }
+
+    It "rejects symbolic-link and junction aliases before accepting the install-root set" {
+        Import-Module $environmentModule -Force
+        $root = Join-Path $TestDrive "install-reparse"
+        $vault = Join-Path $root "vault"
+        $runtime = Join-Path $root "runtime"
+        $publication = Join-Path $root "publication"
+        New-Item -ItemType Directory -Path $vault, $runtime, $publication -Force | Out-Null
+
+        foreach ($kind in @("SymbolicLink", "Junction")) {
+            $alias = Join-Path $root ("vault-" + $kind.ToLowerInvariant())
+            try {
+                New-Item -ItemType $kind -Path $alias -Target $vault -ErrorAction Stop | Out-Null
+            } catch {
+                Write-Warning "SKIPPED: Windows does not permit $kind creation in this test environment."
+                continue
+            }
+
+            $threw = $false
+            try {
+                Assert-InstallPathSetIsSafe -VaultPath $alias -RuntimeRoot $runtime -PublicationRoot $publication
+            } catch {
+                $threw = $true
+            }
+            $threw | Should Be $true
+        }
+    }
+
     It "resolves the default publication root below the Windows Desktop known folder" {
         if (-not (Test-Path $publicationModule)) { throw "PublicationLibrary module is missing" }
         Import-Module $publicationModule -Force
