@@ -559,6 +559,93 @@ Describe "Beginner installer safety contract" {
         (Get-Content -Raw -LiteralPath $paths.RuntimeConfigPath) | Should Not Match 'apiKey|token|secret|bearer|privateKey|certificate'
     }
 
+    It "writes schema-v2 runtime fields without secrets" {
+        Import-Module $environmentModule -Force
+        $runtimeRoot = Join-Path $TestDrive "schema-v2-runtime"
+        $paths = Resolve-InstallPaths -VaultPath (Join-Path $TestDrive "schema-v2-vault") -RuntimeRoot $runtimeRoot -PublicationRoot (Join-Path $TestDrive "schema-v2-publication")
+        $python = [pscustomobject]@{
+            BasePython = [IO.Path]::GetFullPath((Join-Path $TestDrive "Python312\python.exe"))
+            Python = [IO.Path]::GetFullPath((Join-Path $runtimeRoot "venv\Scripts\python.exe"))
+            VenvRoot = [IO.Path]::GetFullPath((Join-Path $runtimeRoot "venv"))
+            RequirementsHash = ("a" * 64)
+        }
+
+        Save-RuntimeConfig -Paths $paths -PythonRuntime $python | Out-Null
+        $config = Get-Content -Raw -LiteralPath $paths.RuntimeConfigPath | ConvertFrom-Json
+
+        $config.schemaVersion | Should Be 2
+        $config.pythonExecutable | Should Be $python.BasePython
+        $config.venvRoot | Should Be $python.VenvRoot
+        $config.venvPythonExecutable | Should Be $python.Python
+        $config.requirementsHash | Should Be $python.RequirementsHash
+        $config.lastCompletedStage | Should Be $null
+        ($config | ConvertTo-Json -Depth 8) | Should Not Match 'apiKey|cert|BEGIN CERTIFICATE'
+    }
+
+    It "normalizes schema-v1 as read-only and migrates only explicitly" {
+        Import-Module $environmentModule -Force
+        $vault = Join-Path $TestDrive "migration-vault"
+        $configPath = Join-Path $TestDrive "migration-runtime.json"
+        $runtimeRoot = Split-Path -Parent $configPath
+        $v1 = [ordered]@{
+            schemaVersion = 1
+            vaultPath = [IO.Path]::GetFullPath($vault)
+            restDataPath = Join-Path ([IO.Path]::GetFullPath($vault)) ".obsidian\plugins\obsidian-local-rest-api\data.json"
+            publicationRoot = [IO.Path]::GetFullPath((Join-Path $TestDrive "migration-publication"))
+        } | ConvertTo-Json -Depth 8
+        [IO.File]::WriteAllText($configPath, $v1, [Text.UTF8Encoding]::new($false))
+        $before = [IO.File]::ReadAllBytes($configPath)
+
+        $loaded = Get-RuntimeConfig -RuntimeConfigPath $configPath
+
+        $loaded.schemaVersion | Should Be 1
+        $loaded.NeedsMigration | Should Be $true
+        $loaded.pythonExecutable | Should Be $null
+        [IO.File]::ReadAllBytes($configPath) | Should Be $before
+
+        $python = [pscustomobject]@{
+            BasePython = "C:\Python312\python.exe"
+            Python = "C:\managed\venv\Scripts\python.exe"
+            VenvRoot = "C:\managed\venv"
+            RequirementsHash = ("b" * 64)
+        }
+        $paths = [pscustomobject]@{
+            VaultPath = $loaded.vaultPath
+            RestDataPath = $loaded.restDataPath
+            PublicationRoot = $loaded.publicationRoot
+            RuntimeRoot = $runtimeRoot
+            RuntimeConfigPath = $configPath
+        }
+        $backup = Convert-RuntimeConfigV1ToV2 -RuntimeConfigPath $configPath -Paths $paths -PythonRuntime $python
+
+        $backup | Should Match '\.v1\.bak$'
+        Test-Path -LiteralPath $backup -PathType Leaf | Should Be $true
+        (Get-RuntimeConfig -RuntimeConfigPath $configPath).schemaVersion | Should Be 2
+    }
+
+    It "accepts only approved schema-v2 install stages and mirrors the runtime stage" {
+        Import-Module $environmentModule -Force
+        $runtimeRoot = Join-Path $TestDrive "stage-runtime"
+        $paths = Resolve-InstallPaths -VaultPath (Join-Path $TestDrive "stage-vault") -RuntimeRoot $runtimeRoot -PublicationRoot (Join-Path $TestDrive "stage-publication")
+        $python = [pscustomobject]@{
+            BasePython = "C:\Python312\python.exe"
+            Python = "C:\managed\venv\Scripts\python.exe"
+            VenvRoot = "C:\managed\venv"
+            RequirementsHash = ("c" * 64)
+        }
+        Save-RuntimeConfig -Paths $paths -PythonRuntime $python | Out-Null
+
+        foreach ($stage in @("preflight","base_python_ready","venv_ready","dependencies_ready","vault_ready","local_rest_ready","runtime_ready","doctor_verified","ready")) {
+            { Set-InstallStage -RuntimeRoot $runtimeRoot -Stage $stage } | Should Not Throw
+            $state = Get-InstallStage -RuntimeRoot $runtimeRoot
+            $state.schemaVersion | Should Be 2
+            $state.stage | Should Be $stage
+            (Get-RuntimeConfig -RuntimeConfigPath $paths.RuntimeConfigPath).lastCompletedStage | Should Be $stage
+        }
+
+        { Set-InstallStage -RuntimeRoot $runtimeRoot -Stage "not-a-stage" } | Should Throw
+    }
+
     It "loads a legacy schema-v1 runtime without publicationRoot" {
         if (-not (Test-Path $environmentModule)) { throw "Environment module is missing" }
         Import-Module $environmentModule -Force

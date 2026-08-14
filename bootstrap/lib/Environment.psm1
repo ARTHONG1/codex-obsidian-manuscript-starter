@@ -57,14 +57,30 @@ function Resolve-InstallPaths {
 function Save-RuntimeConfig {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory = $true)] [psobject]$Paths
+        [Parameter(Mandatory = $true)] [psobject]$Paths,
+        [psobject]$PythonRuntime
     )
 
-    New-Item -ItemType Directory -Path $Paths.RuntimeRoot -Force | Out-Null
+    $runtimeRoot = [IO.Path]::GetFullPath([string]$Paths.RuntimeRoot)
+    New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
     $payload = [ordered]@{
-        schemaVersion = 1
+        schemaVersion = 2
         vaultPath = [IO.Path]::GetFullPath([string]$Paths.VaultPath)
         restDataPath = [IO.Path]::GetFullPath([string]$Paths.RestDataPath)
+        pythonExecutable = $null
+        venvRoot = $null
+        venvPythonExecutable = $null
+        requirementsHash = $null
+        lastCompletedStage = $null
+    }
+    if ($PythonRuntime) {
+        $payload.pythonExecutable = Assert-AbsoluteRuntimePath -Path $PythonRuntime.BasePython -Name "pythonExecutable"
+        $payload.venvRoot = Assert-AbsoluteRuntimePath -Path $PythonRuntime.VenvRoot -Name "venvRoot"
+        $payload.venvPythonExecutable = Assert-AbsoluteRuntimePath -Path $PythonRuntime.Python -Name "venvPythonExecutable"
+        if ([string]$PythonRuntime.RequirementsHash -notmatch "^[0-9a-fA-F]{64}$") {
+            throw "requirementsHash must be a 64-character SHA-256 digest."
+        }
+        $payload.requirementsHash = ([string]$PythonRuntime.RequirementsHash).ToLowerInvariant()
     }
     $publicationProperty = $Paths.PSObject.Properties["PublicationRoot"]
     if ($publicationProperty -and -not [string]::IsNullOrWhiteSpace([string]$publicationProperty.Value)) {
@@ -74,9 +90,61 @@ function Save-RuntimeConfig {
         }
         $payload.publicationRoot = $publicationRoot
     }
-    $payload = $payload | ConvertTo-Json
-    Set-Content -LiteralPath $Paths.RuntimeConfigPath -Value $payload -Encoding UTF8 -NoNewline
+    Write-AtomicUtf8Json -Path $Paths.RuntimeConfigPath -Payload $payload
     return $Paths.RuntimeConfigPath
+}
+
+function Test-NoReparsePointInPath {
+    param([Parameter(Mandatory = $true)] [string]$Path)
+    $current = [IO.Path]::GetFullPath($Path)
+    while ($current) {
+        if (Test-Path -LiteralPath $current) {
+            $item = Get-Item -LiteralPath $current -Force
+            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { return $false }
+        }
+        $parent = Split-Path -Parent $current
+        if (-not $parent -or $parent -eq $current) { break }
+        $current = $parent
+    }
+    return $true
+}
+
+function Assert-AtomicParent {
+    param([Parameter(Mandatory = $true)] [string]$Path)
+    $full = [IO.Path]::GetFullPath($Path)
+    $parent = Split-Path -Parent $full
+    if (-not $parent -or -not (Test-Path -LiteralPath $parent -PathType Container)) {
+        throw "Atomic destination parent does not exist."
+    }
+    if (-not (Test-NoReparsePointInPath -Path $parent)) {
+        throw "Atomic destination parent contains a reparse point."
+    }
+    return $full
+}
+
+function Write-AtomicUtf8Json {
+    param(
+        [Parameter(Mandatory = $true)] [string]$Path,
+        [Parameter(Mandatory = $true)] [object]$Payload
+    )
+    $full = Assert-AtomicParent -Path $Path
+    $temp = Join-Path (Split-Path -Parent $full) (("." + [IO.Path]::GetFileName($full)) + "." + [guid]::NewGuid().ToString("N") + ".tmp")
+    try {
+        $json = $Payload | ConvertTo-Json -Depth 8
+        $utf8 = New-Object Text.UTF8Encoding($false)
+        [IO.File]::WriteAllText($temp, $json, $utf8)
+        Move-Item -LiteralPath $temp -Destination $full -Force
+    } finally {
+        if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+function Assert-AbsoluteRuntimePath {
+    param([string]$Path, [string]$Name)
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not [IO.Path]::IsPathRooted($Path)) {
+        throw "$Name must be an absolute path."
+    }
+    return [IO.Path]::GetFullPath($Path)
 }
 
 function Get-RuntimeConfig {
@@ -89,7 +157,7 @@ function Get-RuntimeConfig {
         throw "Runtime configuration is missing. Run bootstrap\\install-windows.ps1 before using the manuscript skill."
     }
     $config = Get-Content -Raw -LiteralPath $RuntimeConfigPath | ConvertFrom-Json
-    if ($config.schemaVersion -ne 1 -or [string]::IsNullOrWhiteSpace($config.vaultPath) -or [string]::IsNullOrWhiteSpace($config.restDataPath)) {
+    if (($config.schemaVersion -ne 1 -and $config.schemaVersion -ne 2) -or [string]::IsNullOrWhiteSpace($config.vaultPath) -or [string]::IsNullOrWhiteSpace($config.restDataPath)) {
         throw "Runtime configuration has an unsupported schema. Re-run bootstrap\\install-windows.ps1."
     }
     $vaultPath = [IO.Path]::GetFullPath([string]$config.vaultPath)
@@ -107,7 +175,62 @@ function Get-RuntimeConfig {
             throw "Runtime configuration overlaps the selected vault. Re-run bootstrap\\install-windows.ps1."
         }
     }
-    return [pscustomobject]@{ schemaVersion = 1; vaultPath = $vaultPath; restDataPath = $restDataPath; publicationRoot = $publicationRoot }
+    if ($config.schemaVersion -eq 1) {
+        return [pscustomobject]@{
+            schemaVersion = 1
+            vaultPath = $vaultPath
+            restDataPath = $restDataPath
+            publicationRoot = $publicationRoot
+            pythonExecutable = $null
+            venvRoot = $null
+            venvPythonExecutable = $null
+            requirementsHash = $null
+            lastCompletedStage = $null
+            NeedsMigration = $true
+        }
+    }
+    foreach ($name in @("pythonExecutable", "venvRoot", "venvPythonExecutable")) {
+        $property = $config.PSObject.Properties[$name]
+        if ($property -and $null -ne $property.Value -and [string]$property.Value -notmatch "^[A-Za-z]:\\|^\\\\") {
+            throw "Runtime configuration contains an invalid $name."
+        }
+    }
+    if ($config.requirementsHash -and [string]$config.requirementsHash -notmatch "^[0-9a-fA-F]{64}$") {
+        throw "Runtime configuration contains an invalid requirementsHash."
+    }
+    return [pscustomobject]@{
+        schemaVersion = 2
+        vaultPath = $vaultPath
+        restDataPath = $restDataPath
+        publicationRoot = $publicationRoot
+        pythonExecutable = if ($config.pythonExecutable) { [IO.Path]::GetFullPath([string]$config.pythonExecutable) } else { $null }
+        venvRoot = if ($config.venvRoot) { [IO.Path]::GetFullPath([string]$config.venvRoot) } else { $null }
+        venvPythonExecutable = if ($config.venvPythonExecutable) { [IO.Path]::GetFullPath([string]$config.venvPythonExecutable) } else { $null }
+        requirementsHash = if ($config.requirementsHash) { ([string]$config.requirementsHash).ToLowerInvariant() } else { $null }
+        lastCompletedStage = if ($config.lastCompletedStage) { [string]$config.lastCompletedStage } else { $null }
+        NeedsMigration = $false
+    }
+}
+
+function Convert-RuntimeConfigV1ToV2 {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)] [string]$RuntimeConfigPath,
+        [Parameter(Mandatory = $true)] [psobject]$Paths,
+        [Parameter(Mandatory = $true)] [psobject]$PythonRuntime
+    )
+    $full = [IO.Path]::GetFullPath($RuntimeConfigPath)
+    $original = [IO.File]::ReadAllBytes($full)
+    $stamp = [DateTime]::UtcNow.ToString("yyyyMMddTHHmmssfffZ")
+    $backup = "$full.$stamp.v1.bak"
+    [IO.File]::Copy($full, $backup, $false)
+    try {
+        Save-RuntimeConfig -Paths $Paths -PythonRuntime $PythonRuntime | Out-Null
+        return $backup
+    } catch {
+        [IO.File]::WriteAllBytes($full, $original)
+        throw
+    }
 }
 
 function Find-ObsidianExecutable {
@@ -140,7 +263,7 @@ function Get-InstallStage {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
     try {
         $state = Get-Content -Raw -LiteralPath $path -Encoding UTF8 | ConvertFrom-Json
-        if ($state.schemaVersion -ne 1) { return $null }
+        if ($state.schemaVersion -ne 2) { return $null }
         return $state
     } catch { return $null }
 }
@@ -148,14 +271,31 @@ function Get-InstallStage {
 function Set-InstallStage {
     param(
         [Parameter(Mandatory = $true)] [string]$RuntimeRoot,
-        [Parameter(Mandatory = $true)] [ValidateSet("preflight","dependency_ready","vault_ready","local_rest_ready","runtime_ready","doctor_verified","ready")] [string]$Stage
+        [Parameter(Mandatory = $true)] [ValidateSet("preflight","base_python_ready","venv_ready","dependencies_ready","dependency_ready","vault_ready","local_rest_ready","runtime_ready","doctor_verified","ready")] [string]$Stage
     )
+    if ($Stage -eq "dependency_ready") { $Stage = "dependencies_ready" }
     New-Item -ItemType Directory -Path $RuntimeRoot -Force | Out-Null
     $path = Get-InstallStagePath -RuntimeRoot $RuntimeRoot
-    $tmp = "$path.$PID.tmp"
-    [ordered]@{ schemaVersion = 1; stage = $Stage; updatedUtc = [DateTime]::UtcNow.ToString("o") } |
-        ConvertTo-Json | Set-Content -LiteralPath $tmp -Encoding UTF8 -NoNewline
-    Move-Item -LiteralPath $tmp -Destination $path -Force
+    $updatedUtc = [DateTime]::UtcNow.ToString("o")
+    Write-AtomicUtf8Json -Path $path -Payload ([ordered]@{ schemaVersion = 2; stage = $Stage; updatedUtc = $updatedUtc })
+    $runtimePath = Join-Path ([IO.Path]::GetFullPath($RuntimeRoot)) "runtime.json"
+    if (Test-Path -LiteralPath $runtimePath -PathType Leaf) {
+        $runtime = Get-RuntimeConfig -RuntimeConfigPath $runtimePath
+        if ($runtime.schemaVersion -eq 2) {
+            $runtime.lastCompletedStage = $Stage
+            Write-AtomicUtf8Json -Path $runtimePath -Payload ([ordered]@{
+                schemaVersion = 2
+                vaultPath = $runtime.vaultPath
+                restDataPath = $runtime.restDataPath
+                publicationRoot = $runtime.publicationRoot
+                pythonExecutable = $runtime.pythonExecutable
+                venvRoot = $runtime.venvRoot
+                venvPythonExecutable = $runtime.venvPythonExecutable
+                requirementsHash = $runtime.requirementsHash
+                lastCompletedStage = $Stage
+            })
+        }
+    }
     return $path
 }
 
@@ -185,4 +325,4 @@ function Test-PythonRuntime {
     }
 }
 
-Export-ModuleMember -Function Resolve-InstallPaths, Save-RuntimeConfig, Get-RuntimeConfig, Find-ObsidianExecutable, Get-InstallStagePath, Get-InstallStage, Set-InstallStage, Test-PythonRuntime
+Export-ModuleMember -Function Resolve-InstallPaths, Save-RuntimeConfig, Get-RuntimeConfig, Convert-RuntimeConfigV1ToV2, Find-ObsidianExecutable, Get-InstallStagePath, Get-InstallStage, Set-InstallStage, Test-PythonRuntime
