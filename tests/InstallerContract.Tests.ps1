@@ -160,6 +160,19 @@ Describe "Beginner installer safety contract" {
         }
     }
 
+    It "ships and references the hash-complete runtime lock in both bootstrap trees" {
+        foreach ($bootstrapRoot in @(
+            (Join-Path $repoRoot "bootstrap"),
+            (Join-Path $repoRoot "plugins\obsidian-manuscript-publisher\bootstrap")
+        )) {
+            $lock = Join-Path (Split-Path -Parent $bootstrapRoot) "requirements.lock.txt"
+            Test-Path -LiteralPath $lock | Should Be $true
+            $installer = Get-Content -Raw -LiteralPath (Join-Path $bootstrapRoot "install-windows.ps1") -Encoding UTF8
+            $installer | Should Match "requirements\.lock\.txt"
+            $installer | Should Not Match "requirements\.txt"
+        }
+    }
+
     It "resolves the dependency lock when only the plugin subtree is present" {
         $isolated = Join-Path $TestDrive "isolated-plugin"
         Copy-Item -LiteralPath (Join-Path $repoRoot "plugins\obsidian-manuscript-publisher") -Destination $isolated -Recurse -Force

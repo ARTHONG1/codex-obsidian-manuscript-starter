@@ -37,11 +37,11 @@ if (-not $pythonState.Ready) {
     $pythonState = Test-PythonRuntime
     if (-not $pythonState.Ready) {
         $requirements = @(
-            (Join-Path (Split-Path -Parent $bootstrapRoot) "requirements.txt"),
-            (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $bootstrapRoot))) "requirements.txt")
+            (Join-Path (Split-Path -Parent $bootstrapRoot) "requirements.lock.txt"),
+            (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $bootstrapRoot))) "requirements.lock.txt")
         ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
-        if (-not $requirements) { throw "python_dependency_missing: requirements.txt was not found in the packaged release." }
-        & $pythonState.Python -m pip install --requirement $requirements --disable-pip-version-check
+        if (-not $requirements) { throw "python_dependency_missing: requirements.lock.txt was not found in the packaged release." }
+        & $pythonState.Python -m pip install --require-hashes --only-binary=:all: --requirement $requirements --disable-pip-version-check
         if ($LASTEXITCODE -ne 0) { throw "python_dependency_missing: package installation failed; rerun the same command after reviewing pip output." }
         $pythonState = Test-PythonRuntime -PythonPath $pythonState.Python
     }
