@@ -18,6 +18,7 @@ Import-Module (Join-Path $bootstrapRoot "lib\Environment.psm1") -Force
 Import-Module (Join-Path $bootstrapRoot "lib\Vault.psm1") -Force
 Import-Module (Join-Path $bootstrapRoot "lib\LocalRest.psm1") -Force
 Import-Module (Join-Path $bootstrapRoot "lib\PublicationLibrary.psm1") -Force
+Import-Module (Join-Path $bootstrapRoot "lib\PythonRuntime.psm1") -Force
 
 $paths = Resolve-InstallPaths -VaultPath $VaultPath -RuntimeRoot $RuntimeRoot -PublicationRoot $PublicationRoot
 $stage = Get-InstallStage -RuntimeRoot $paths.RuntimeRoot
@@ -25,27 +26,35 @@ if ($null -eq $stage) {
     Set-InstallStage -RuntimeRoot $paths.RuntimeRoot -Stage "preflight" | Out-Null
 }
 
-$pythonState = Test-PythonRuntime
+$pythonState = Find-Python312
 if (-not $pythonState.Ready) {
-    if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
+    $wingetCommand = Get-Command winget.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $wingetCommand) {
         throw "python_dependency_missing: Python 3.12 with the six pinned document packages is required. Install Python from https://www.python.org/downloads/windows/ and rerun this command."
     }
-    if ($pythonState.Reason -eq "python_missing") {
-        & winget.exe install --id Python.Python.3.12 --exact --accept-source-agreements --accept-package-agreements
-        if ($LASTEXITCODE -ne 0) { throw "python_dependency_missing: Python installation did not complete; rerun after reviewing winget output." }
+    $pythonInstall = Install-Python312 -WingetPath $wingetCommand.Source
+    if ($pythonInstall.Status -ne "python_installed") {
+        throw "python_dependency_missing: $($pythonInstall.Recovery)"
     }
-    $pythonState = Test-PythonRuntime
+    $pythonState = Find-Python312
     if (-not $pythonState.Ready) {
-        $requirements = @(
-            (Join-Path (Split-Path -Parent $bootstrapRoot) "requirements.lock.txt"),
-            (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $bootstrapRoot))) "requirements.lock.txt")
-        ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
-        if (-not $requirements) { throw "python_dependency_missing: requirements.lock.txt was not found in the packaged release." }
-        & $pythonState.Python -m pip install --require-hashes --only-binary=:all: --requirement $requirements --disable-pip-version-check
-        if ($LASTEXITCODE -ne 0) { throw "python_dependency_missing: package installation failed; rerun the same command after reviewing pip output." }
-        $pythonState = Test-PythonRuntime -PythonPath $pythonState.Python
+        return [pscustomobject]@{
+            Status = "python_installed_restart_required"
+            Recovery = "Close and reopen Codex, then rerun the same installer command."
+        }
     }
-    if (-not $pythonState.Ready) { throw "python_dependency_missing: the exact Python runtime contract is still unavailable; rerun doctor and review the reported missing or mismatched packages." }
+}
+$runtimeState = Test-PythonRuntime -PythonPath $pythonState.Python
+if (-not $runtimeState.Ready) {
+    $requirements = @(
+        (Join-Path (Split-Path -Parent $bootstrapRoot) "requirements.lock.txt"),
+        (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $bootstrapRoot))) "requirements.lock.txt")
+    ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+    if (-not $requirements) { throw "python_dependency_missing: requirements.lock.txt was not found in the packaged release." }
+    & $pythonState.Python -m pip install --require-hashes --only-binary=:all: --requirement $requirements --disable-pip-version-check
+    if ($LASTEXITCODE -ne 0) { throw "python_dependency_missing: package installation failed; rerun the same command after reviewing pip output." }
+    $runtimeState = Test-PythonRuntime -PythonPath $pythonState.Python
+    if (-not $runtimeState.Ready) { throw "python_dependency_missing: the exact Python runtime contract is still unavailable; rerun doctor and review the reported missing or mismatched packages." }
 }
 Set-InstallStage -RuntimeRoot $paths.RuntimeRoot -Stage "dependency_ready" | Out-Null
 

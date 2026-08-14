@@ -5,6 +5,23 @@ function ConvertTo-CanonicalPath {
     try { return [IO.Path]::GetFullPath($Path) } catch { return $null }
 }
 
+function Test-NoReparsePointInPath {
+    param([Parameter(Mandatory = $true)] [string]$Path)
+    try {
+        $candidate = Get-Item -LiteralPath $Path -Force
+        if (($candidate.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            return $false
+        }
+        $parent = Get-Item -LiteralPath (Split-Path -Parent $Path) -Force
+        if (($parent.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            return $false
+        }
+        return $true
+    } catch {
+        return $false
+    }
+}
+
 function Test-CanonicalCandidate {
     param(
         [Parameter(Mandatory = $true)] [string]$Candidate,
@@ -15,6 +32,13 @@ function Test-CanonicalCandidate {
     if ([string]::IsNullOrWhiteSpace($canonical) -or
         -not [IO.Path]::IsPathRooted($canonical) -or
         -not (Test-Path -LiteralPath $canonical -PathType Leaf)) {
+        return $null
+    }
+    try {
+        if (-not (Test-NoReparsePointInPath $canonical)) {
+            return $null
+        }
+    } catch {
         return $null
     }
     try {
@@ -43,10 +67,19 @@ function Test-CanonicalCandidate {
 function Invoke-DefaultCommandResolver {
     param([string]$Command, [string[]]$Arguments)
     try {
-        $output = & $Command @Arguments 2>$null
-        if ($LASTEXITCODE -eq 0 -and $output) {
-            return ([string]($output | Select-Object -First 1)).Trim()
+        $application = Get-Command ($Command + ".exe") -CommandType Application -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if (-not $application) {
+            return $null
         }
+        if ($Command -eq "py") {
+            $script = 'import sys; print(sys.executable)'
+            $output = & $application.Source @Arguments "-c" $script 2>$null
+            if ($LASTEXITCODE -eq 0 -and $output) {
+                return ([string]($output | Select-Object -First 1)).Trim()
+            }
+        }
+        return $application.Source
     } catch {}
     return $null
 }
@@ -144,6 +177,30 @@ function Install-Python312 {
     )
 
     if ([string]::IsNullOrWhiteSpace($WingetPath)) {
+        return [pscustomobject]@{
+            Status = "python_install_manual_required"
+            Recovery = "Install WinGet, then rerun the installer."
+        }
+    }
+    try {
+        $winget = if ([IO.Path]::IsPathRooted($WingetPath)) {
+            $WingetPath
+        } else {
+            $command = Get-Command $WingetPath -CommandType Application -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+            if ($command) { $command.Source } else { $null }
+        }
+        $canonical = ConvertTo-CanonicalPath $winget
+        if ([string]::IsNullOrWhiteSpace($canonical) -or
+            -not (Test-Path -LiteralPath $canonical -PathType Leaf) -or
+            -not (Test-NoReparsePointInPath $canonical)) {
+            return [pscustomobject]@{
+                Status = "python_install_manual_required"
+                Recovery = "Install WinGet, then rerun the installer."
+            }
+        }
+        $WingetPath = $canonical
+    } catch {
         return [pscustomobject]@{
             Status = "python_install_manual_required"
             Recovery = "Install WinGet, then rerun the installer."

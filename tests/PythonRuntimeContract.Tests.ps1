@@ -137,6 +137,8 @@ Describe "Python 3.12 runtime contract" {
     }
 
     It "calls the exact Python 3.12 WinGet command and returns python_installed" {
+        $winget = Join-Path $TestDrive "winget.exe"
+        New-Item -ItemType File -Path $winget -Force | Out-Null
         $state = @{ Invocation = $null }
         $runner = {
             param([string]$Executable, [string[]]$Arguments)
@@ -148,37 +150,43 @@ Describe "Python 3.12 runtime contract" {
             return $state.Invocation
         }.GetNewClosure()
 
-        $result = Install-Python312 -WingetPath "C:\WindowsApps\winget.exe" -ProcessRunner $runner
+        $result = Install-Python312 -WingetPath $winget -ProcessRunner $runner
 
         $result.Status | Should Be "python_installed"
-        $state.Invocation.Executable | Should Be "C:\WindowsApps\winget.exe"
+        $state.Invocation.Executable | Should Be ([IO.Path]::GetFullPath($winget))
         ($state.Invocation.Arguments -join " ") | Should Be "install --id Python.Python.3.12 --exact --accept-source-agreements --accept-package-agreements"
     }
 
     It "returns python_install_failed when WinGet exits unsuccessfully" {
+        $winget = Join-Path $TestDrive "winget.exe"
+        New-Item -ItemType File -Path $winget -Force | Out-Null
         $runner = {
             param([string]$Executable, [string[]]$Arguments)
             return [pscustomobject]@{ ExitCode = 17 }
         }
 
-        $result = Install-Python312 -WingetPath "winget.exe" -ProcessRunner $runner
+        $result = Install-Python312 -WingetPath $winget -ProcessRunner $runner
 
         $result.Status | Should Be "python_install_failed"
         $result.Recovery | Should Match "17"
     }
 
     It "returns python_installed when installation succeeds so the caller can rediscover" {
+        $winget = Join-Path $TestDrive "winget.exe"
+        New-Item -ItemType File -Path $winget -Force | Out-Null
         $runner = {
             param([string]$Executable, [string[]]$Arguments)
             return [pscustomobject]@{ ExitCode = 0 }
         }
 
-        $result = Install-Python312 -WingetPath "winget.exe" -ProcessRunner $runner
+        $result = Install-Python312 -WingetPath $winget -ProcessRunner $runner
 
         $result.Status | Should Be "python_installed"
     }
 
     It "returns python_installed_restart_required when rediscovery remains empty" {
+        $winget = Join-Path $TestDrive "winget.exe"
+        New-Item -ItemType File -Path $winget -Force | Out-Null
         $resolver = {
             param([string]$Command, [string[]]$Arguments)
             return $null
@@ -187,7 +195,7 @@ Describe "Python 3.12 runtime contract" {
             param([string]$Candidate)
             throw "probe should not run"
         }
-        $install = Install-Python312 -WingetPath "winget.exe" -ProcessRunner {
+        $install = Install-Python312 -WingetPath $winget -ProcessRunner {
             param([string]$Executable, [string[]]$Arguments)
             [pscustomobject]@{ ExitCode = 0 }
         }
@@ -204,13 +212,15 @@ Describe "Python 3.12 runtime contract" {
     }
 
     It "does not mutate PATH or the registry" {
+        $winget = Join-Path $TestDrive "winget.exe"
+        New-Item -ItemType File -Path $winget -Force | Out-Null
         $beforePath = $env:PATH
         $runner = {
             param([string]$Executable, [string[]]$Arguments)
             return [pscustomobject]@{ ExitCode = 0 }
         }
 
-        [void](Install-Python312 -WingetPath "winget.exe" -ProcessRunner $runner)
+        [void](Install-Python312 -WingetPath $winget -ProcessRunner $runner)
 
         $env:PATH | Should Be $beforePath
         (Get-Command Set-ItemProperty -ErrorAction SilentlyContinue).Name | Should Be "Set-ItemProperty"

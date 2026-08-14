@@ -87,6 +87,16 @@ Export-ModuleMember -Function Resolve-InstallPaths, Save-RuntimeConfig, Get-Runt
 '@ | Set-Content -LiteralPath (Join-Path $libRoot "Environment.psm1") -Encoding UTF8
 
     @'
+function Find-Python312 {
+    [pscustomobject]@{ Ready = $true; Reason = "ready"; Python = "python"; PythonVersion = "3.12" }
+}
+function Install-Python312 {
+    [pscustomobject]@{ Status = "python_installed"; Recovery = "test" }
+}
+Export-ModuleMember -Function Find-Python312, Install-Python312
+'@ | Set-Content -LiteralPath (Join-Path $libRoot "PythonRuntime.psm1") -Encoding UTF8
+
+    @'
 function Initialize-StarterVault {
     param([string]$VaultPath, [switch]$AllowExistingEmptyVault)
     New-Item -ItemType Directory -Path $VaultPath -Force | Out-Null
@@ -140,6 +150,42 @@ Export-ModuleMember -Function Resolve-PublicationRoot, Initialize-PublicationLib
 }
 
 Describe "Beginner installer safety contract" {
+    It "integrates PythonRuntime into both packaged installers" {
+        foreach ($bootstrapRoot in @(
+            (Join-Path $repoRoot "bootstrap"),
+            (Join-Path $repoRoot "plugins\obsidian-manuscript-publisher\bootstrap")
+        )) {
+            $installer = Get-Content -Raw -LiteralPath (Join-Path $bootstrapRoot "install-windows.ps1") -Encoding UTF8
+            $installer | Should Match 'PythonRuntime\.psm1'
+            $installer | Should Match '\$pythonState = Find-Python312'
+            $installer | Should Match '\$pythonInstall = Install-Python312'
+        }
+    }
+
+    It "rediscoveries Python 3.12 after a successful WinGet install and exposes restart-required status" {
+        foreach ($bootstrapRoot in @(
+            (Join-Path $repoRoot "bootstrap"),
+            (Join-Path $repoRoot "plugins\obsidian-manuscript-publisher\bootstrap")
+        )) {
+            $installer = Get-Content -Raw -LiteralPath (Join-Path $bootstrapRoot "install-windows.ps1") -Encoding UTF8
+            $installIndex = $installer.IndexOf('$pythonInstall = Install-Python312')
+            $rediscoveryIndex = if ($installIndex -ge 0) {
+                $installer.IndexOf('$pythonState = Find-Python312', $installIndex + 1)
+            } else {
+                -1
+            }
+            $restartIndex = if ($rediscoveryIndex -ge 0) {
+                $installer.IndexOf('python_installed_restart_required', $rediscoveryIndex)
+            } else {
+                -1
+            }
+
+            $installIndex | Should BeGreaterThan -1
+            $rediscoveryIndex | Should BeGreaterThan $installIndex
+            $restartIndex | Should BeGreaterThan $rediscoveryIndex
+        }
+    }
+
     It "ships install, doctor, and non-destructive uninstall entry points" {
         Test-Path (Join-Path $repoRoot "bootstrap\install-windows.ps1") | Should Be $true
         Test-Path (Join-Path $repoRoot "bootstrap\doctor.ps1") | Should Be $true
