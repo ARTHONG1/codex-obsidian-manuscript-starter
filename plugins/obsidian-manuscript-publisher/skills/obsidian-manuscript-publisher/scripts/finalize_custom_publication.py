@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,8 @@ def finalize_custom_publication(
     base_url: str | None = None,
 ) -> dict[str, Any]:
     root = Path(output_root)
+    if not re.fullmatch(r"v0\.[1-9][0-9]*", root.name):
+        raise ValueError("custom_version_required")
     root.mkdir(parents=True, exist_ok=True)
     rendered = render_custom_manuscript(data, root)
     report_path = root / "publication-validation.json"

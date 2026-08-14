@@ -35,6 +35,9 @@ def build_candidate(display_name: str, sources: list[str | Path], evidence: dict
     candidate_id = candidate_id_for_inputs({"schema_version": 1, "analysis": analysis, "template": template.to_dict(), "preview": preview})
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
+    existing = {path.name for path in output.iterdir() if path.is_file()}
+    if existing - {"source-analysis.json"}:
+        raise TemplateCandidateError("template_candidate_output_exists")
     payload = template.to_dict() | {"candidate_id": candidate_id}
     (output / "template.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     source_payload = {"sources": analysis["source_manifest"], "evidence": analysis["evidence"]}

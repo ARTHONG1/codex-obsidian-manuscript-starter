@@ -88,6 +88,9 @@ def inspect_source_set(paths: list[str | Path]) -> dict[str, object]:
     if len(paths) > MAX_SOURCE_FILES:
         return {"code": "template_source_count_exceeded", "source_count": len(paths), "sources": []}
     ordered = sorted((Path(path) for path in paths), key=lambda item: item.name.casefold())
+    names = [path.name for path in ordered]
+    if len(set(names)) != len(names):
+        return {"code": "duplicate_source_name", "sources": []}
     results = [inspect_source(path) for path in ordered]
     first_failure = next((result for result in results if result.code != "source_ready"), None)
     if first_failure is not None:

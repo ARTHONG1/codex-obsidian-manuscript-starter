@@ -17,7 +17,7 @@ class CustomPublicationTests(unittest.TestCase):
     def test_exports_rendered_files_to_desktop_and_separates_vault_status(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            result = publication.finalize_custom_publication({"title": "주제", "blocks": []}, root / "vault", root / "desktop")
+            result = publication.finalize_custom_publication({"title": "주제", "blocks": []}, root / "v0.1", root / "desktop")
             self.assertEqual(result["vault_publication_status"], "not_attempted")
             self.assertEqual(result["desktop_export_status"], "exported")
             self.assertTrue((root / "desktop" / "manuscript.pdf").exists())
