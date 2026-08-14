@@ -35,3 +35,12 @@ Codex 또는 Obsidian이 재시작되면 아래 문장을 입력합니다.
 ```
 
 현재 허용하는 Python 건너뜀은 정확히 네 건입니다. 실 wheelhouse가 제공되지 않은 `test_real_wheelhouse_recreates_committed_lock_when_provided`, 현재 권한에서 디렉터리 reparse point를 만들 수 없는 `test_existing_item_reparse_point_is_rejected_when_supported`, `test_rejects_reparse_point_without_following_it_when_supported`, `test_snapshot_rejects_reparse_staging_parent_when_supported`이며, 다른 수가 보고되면 검증은 실패해야 합니다.
+
+v0.5.2 릴리스 후보는 다음 순서로 로컬 검증합니다.
+
+```powershell
+.\ci\build-release.ps1 -SourceRoot . -OutputRoot .\artifacts\release -Version 0.5.2
+.\ci\verify-release.ps1 -Archive .\artifacts\release\codex-obsidian-manuscript-starter-v0.5.2.zip -Checksums .\artifacts\release\SHA256SUMS -TestRoot (Join-Path $env:TEMP ("release-install-" + [guid]::NewGuid().ToString("N")))
+```
+
+설치기는 제품 소유 Python 3.12 가상환경과 해시 잠금 requirements를 사용하며, 중단된 단계는 재시작 후 이어갑니다.

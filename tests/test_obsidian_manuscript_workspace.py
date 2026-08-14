@@ -79,9 +79,9 @@ class ObsidianManuscriptWorkspaceTests(unittest.TestCase):
         ]:
             self.assertIn(required_text, skill)
 
-    def test_public_metadata_exposes_blog_profile_as_version_0_5_1(self):
+    def test_public_metadata_exposes_blog_profile_as_version_0_5_2(self):
         manifest = json.loads(PLUGIN_MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "0.5.1")
+        self.assertEqual(manifest["version"], "0.5.2")
         self.assertIn("blog", manifest["description"].lower())
         self.assertIn("blog", manifest["interface"]["longDescription"].lower())
 
