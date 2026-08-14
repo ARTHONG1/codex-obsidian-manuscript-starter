@@ -181,10 +181,9 @@ AI가 만든 이미지는 실제 화면이라고 속이지 않습니다. 실제 
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-python -m unittest discover -s tests -p "test*.py"
-python -m unittest discover -s tests -t tests
-Invoke-Pester -Script .\tests\InstallerContract.Tests.ps1
-Invoke-Pester -Script .\tests\SecretScan.Tests.ps1
+.\ci\run-python-tests.ps1 -PythonPath $Python312
+.\ci\run-pester-tests.ps1 -Path .\tests\InstallerContract.Tests.ps1,.\tests\PythonRuntimeContract.Tests.ps1,.\tests\SecretScan.Tests.ps1 -ExpectedSkipCount 0
+.\ci\run-all-tests.ps1 -PythonPath $Python312
 ```
 
 ## Master Editorial Quality V3

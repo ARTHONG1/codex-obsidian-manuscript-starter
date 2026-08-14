@@ -95,9 +95,9 @@ class DocumentationContractTests(unittest.TestCase):
 
     def test_readme_lists_reproducible_python_and_pester_commands(self):
         self.assertIn("Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force", README)
-        self.assertIn("python -m unittest discover -s tests -t tests", README)
-        self.assertIn("Invoke-Pester -Script .\\tests\\InstallerContract.Tests.ps1", README)
-        self.assertIn("Invoke-Pester -Script .\\tests\\SecretScan.Tests.ps1", README)
+        self.assertIn(".\\ci\\run-python-tests.ps1 -PythonPath $Python312", README)
+        self.assertIn(".\\ci\\run-pester-tests.ps1", README)
+        self.assertIn(".\\ci\\run-all-tests.ps1 -PythonPath $Python312", README)
 
     def test_docs_name_real_validators_and_not_nonexistent_ones(self):
         for document in (README, SKILL):

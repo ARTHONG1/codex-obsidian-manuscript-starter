@@ -106,6 +106,7 @@ Describe "Public release secret and privacy contract" {
 
     It "scans ZIP members before extraction" {
         $archive = Join-Path $TestDrive "candidate.zip"
+        Add-Type -AssemblyName System.IO.Compression
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         $zip = [IO.Compression.ZipFile]::Open($archive, [IO.Compression.ZipArchiveMode]::Create)
         try {
