@@ -18,6 +18,8 @@ Describe "Public release secret and privacy contract" {
     }
 
     It "does not contain author-specific paths or PEM private keys" {
+        $userProfile = [Environment]::GetFolderPath("UserProfile")
+        $authorPathPattern = [regex]::Escape($userProfile)
         $files = Get-ChildItem -LiteralPath $repoRoot -Recurse -File -Force |
             Where-Object { $_.FullName -notmatch '[\\/]\.git[\\/]' -and $_.FullName -notmatch '[\\/]__pycache__[\\/]' -and $_.Length -lt 1MB } |
             Where-Object {
@@ -26,7 +28,7 @@ Describe "Public release secret and privacy contract" {
                 $LASTEXITCODE -ne 0
             }
         $matches = foreach ($file in $files) {
-            Select-String -LiteralPath $file.FullName -Pattern 'C:\\Users\\user|BEGIN (RSA |EC )?PRIVATE KEY|"apiKey"\s*:\s*"[0-9a-f]{32,}"' -AllMatches -ErrorAction SilentlyContinue
+            Select-String -LiteralPath $file.FullName -Pattern "$authorPathPattern|BEGIN (RSA |EC )?PRIVATE KEY|`"apiKey`"\s*:\s*`"[0-9a-f]{32,}`"" -AllMatches -ErrorAction SilentlyContinue
         }
         @($matches).Count | Should Be 0
     }

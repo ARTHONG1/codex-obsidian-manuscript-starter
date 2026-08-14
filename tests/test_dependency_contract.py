@@ -173,7 +173,8 @@ class RuntimeDependencyContractTests(unittest.TestCase):
         for relative in ("bootstrap/doctor.ps1", "plugins/obsidian-manuscript-publisher/bootstrap/doctor.ps1"):
             doctor = (ROOT / relative).read_text(encoding="utf-8")
             self.assertIn("python_dependency_missing", doctor)
-            self.assertIn("six pinned document packages", doctor)
+            self.assertIn("venvPythonExecutable", doctor)
+            self.assertIn("managed Python runtime", doctor)
 
 
 class RuntimeLockGeneratorTests(unittest.TestCase):
