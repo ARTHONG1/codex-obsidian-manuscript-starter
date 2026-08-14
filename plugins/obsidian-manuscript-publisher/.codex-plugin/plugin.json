@@ -18,6 +18,10 @@
     "developerName": "AI Agent Automation contributors",
     "category": "Productivity",
     "capabilities": [],
-    "defaultPrompt": "Help me register an Obsidian writing project, save the current Codex conversation safely, and publish it as an A4 manuscript or portable blog."
+    "defaultPrompt": [
+      "Register an Obsidian writing project and save the current Codex conversation safely.",
+      "Publish verified work as an A4 manuscript, blog, or custom output.",
+      "Delete or refresh the current conversation bundle safely."
+    ]
   }
 }

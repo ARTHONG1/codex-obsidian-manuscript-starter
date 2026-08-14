@@ -4,17 +4,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from typing import Any
 
 
-_LEGACY_MARKERS = (
-    "기존 양식",
-    "레거시",
-    "legacy",
-    "v1",
-    "V1",
-)
-_V2_MARKERS = ("v2", "V2", "2번 양식", "두 번째 양식")
+_V1_TOKEN = re.compile(r"(?<![A-Za-z0-9])v1(?![0-9])", re.IGNORECASE)
+_V2_TOKEN = re.compile(r"(?<![A-Za-z0-9])v2(?![0-9])", re.IGNORECASE)
+_LEGACY_PHRASES = ("기존 양식", "레거시", "legacy")
+_V2_PHRASES = ("2번 양식", "두 번째 양식")
 
 
 def select_book_template(
@@ -30,19 +27,20 @@ def select_book_template(
     if requested_template_version not in (None, 1, 2, 3):
         raise ValueError("unsupported_book_template_version")
 
-    text = request_text or ""
-    legacy_requested = any(marker in text for marker in _LEGACY_MARKERS)
-    if requested_template_version == 1 or legacy_requested:
+    if requested_template_version == 1:
         return {"output_profile": "book_a4", "template_version": 1, "reason": "explicit_legacy_request"}
-
     if requested_template_version == 2:
         return {"output_profile": "book_a4", "template_version": 2, "reason": "explicit_v2_request"}
-
-    if any(marker in text for marker in _V2_MARKERS):
-        return {"output_profile": "book_a4", "template_version": 2, "reason": "explicit_v2_request"}
-
     if requested_template_version == 3:
         return {"output_profile": "book_a4", "template_version": 3, "reason": "explicit_v3_request"}
+
+    text = request_text or ""
+    legacy_requested = _V1_TOKEN.search(text) or any(phrase in text.casefold() for phrase in _LEGACY_PHRASES)
+    if legacy_requested:
+        return {"output_profile": "book_a4", "template_version": 1, "reason": "explicit_legacy_request"}
+
+    if _V2_TOKEN.search(text) or any(phrase in text for phrase in _V2_PHRASES):
+        return {"output_profile": "book_a4", "template_version": 2, "reason": "explicit_v2_request"}
 
     return {"output_profile": "book_a4", "template_version": 3, "reason": "default_new_book_a4"}
 

@@ -1,8 +1,12 @@
 from pathlib import Path
+import json
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+PLUGIN_MANIFEST = ROOT / "plugins/obsidian-manuscript-publisher/.codex-plugin/plugin.json"
+MARKETPLACE = ROOT / ".agents/plugins/marketplace.json"
+OPENAI_AGENT = ROOT / "plugins/obsidian-manuscript-publisher/skills/obsidian-manuscript-publisher/agents/openai.yaml"
 README = (ROOT / "README.md").read_text(encoding="utf-8")
 SKILL = (ROOT / "plugins/obsidian-manuscript-publisher/skills/obsidian-manuscript-publisher/SKILL.md").read_text(encoding="utf-8")
 BLOG_SCHEMA = (ROOT / "plugins/obsidian-manuscript-publisher/skills/obsidian-manuscript-publisher/references/blog-schema.md").read_text(encoding="utf-8")
@@ -11,6 +15,27 @@ EDITORIAL_PROFILE = (ROOT / "plugins/obsidian-manuscript-publisher/skills/obsidi
 
 
 class DocumentationContractTests(unittest.TestCase):
+    def test_plugin_default_prompt_contract(self):
+        manifest = json.loads(PLUGIN_MANIFEST.read_text(encoding="utf-8"))
+        prompts = manifest["interface"]["defaultPrompt"]
+        self.assertIsInstance(prompts, list)
+        self.assertLessEqual(len(prompts), 3)
+        self.assertTrue(all(isinstance(value, str) and 0 < len(value) <= 128 for value in prompts))
+
+    def test_local_marketplace_source_contains_only_source_and_path(self):
+        marketplace = json.loads(MARKETPLACE.read_text(encoding="utf-8"))
+        source = marketplace["plugins"][0]["source"]
+        self.assertEqual(set(source), {"source", "path"})
+
+    def test_openai_default_prompt_is_short_and_aligned(self):
+        prompt_line = next(
+            line for line in OPENAI_AGENT.read_text(encoding="utf-8").splitlines()
+            if line.startswith("  default_prompt:")
+        )
+        prompt = prompt_line.split(":", 1)[1].strip().strip('"')
+        self.assertLessEqual(len(prompt), 128)
+        self.assertIn("Obsidian", prompt)
+
     def test_readme_lists_reproducible_python_and_pester_commands(self):
         self.assertIn("Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force", README)
         self.assertIn("python -m unittest discover -s tests -t tests", README)

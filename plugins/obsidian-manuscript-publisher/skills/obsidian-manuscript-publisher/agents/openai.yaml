@@ -1,4 +1,4 @@
 interface:
   display_name: "Obsidian Manuscript Publisher"
   short_description: "검증 완료 바탕화면 출판함을 갖춘 A4 원고·범용 블로그 발행"
-  default_prompt: "$obsidian-manuscript-publisher를 사용해 요청에 따라 현재 대화를 Obsidian에 저장하거나, 선택한 출력 프로필로 합성·검증한 뒤 검증 완료 바탕화면 출판함에 정리해 줘. Vault 게시와 바탕화면 내보내기 결과를 구분해 보고해 줘."
+  default_prompt: "$obsidian-manuscript-publisher로 대화를 Obsidian에 저장하거나 A4·블로그·맞춤 출력으로 발행해 줘."
