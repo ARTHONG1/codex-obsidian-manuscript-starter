@@ -218,6 +218,73 @@ class TemplateSourceSecurityTests(unittest.TestCase):
             self.assertEqual(str(raised.exception), "snapshot_filesystem_error")
             self.assertNotIn(str(root), str(raised.exception))
 
+    def test_staging_parent_identity_setup_errors_are_path_free(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "example.png"
+            source.write_bytes(b"\x89PNG\r\n\x1a\ncontent")
+            original_identity = template_source._identity
+
+            def fail_with_absolute_path(path):
+                raise OSError(f"identity lookup failed: {Path(path).resolve()}")
+
+            template_source._identity = fail_with_absolute_path
+            try:
+                with self.assertRaises(template_source.TemplateSourceError) as raised:
+                    with template_source.snapshot_source_set([source], staging_parent=root):
+                        pass
+            finally:
+                template_source._identity = original_identity
+            self.assertEqual(str(raised.exception), "unsafe_staging_parent")
+            self.assertNotIn(str(root), str(raised.exception))
+
+    def test_snapshot_directory_creation_errors_are_path_free(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "example.png"
+            source.write_bytes(b"\x89PNG\r\n\x1a\ncontent")
+            original_mkdtemp = template_source.tempfile.mkdtemp
+
+            def fail_with_absolute_path(*args, **kwargs):
+                raise OSError(f"temporary directory failed: {root.resolve()}")
+
+            template_source.tempfile.mkdtemp = fail_with_absolute_path
+            try:
+                with self.assertRaises(template_source.TemplateSourceError) as raised:
+                    with template_source.snapshot_source_set([source], staging_parent=root):
+                        pass
+            finally:
+                template_source.tempfile.mkdtemp = original_mkdtemp
+            self.assertEqual(str(raised.exception), "snapshot_filesystem_error")
+            self.assertNotIn(str(root), str(raised.exception))
+
+    def test_owned_identity_setup_errors_are_path_free_and_cleanup_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "example.png"
+            source.write_bytes(b"\x89PNG\r\n\x1a\ncontent")
+            original_identity = template_source._identity
+            calls = 0
+
+            def fail_on_owned_identity(path):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise OSError(f"owned identity failed: {Path(path).resolve()}")
+                return original_identity(path)
+
+            template_source._identity = fail_on_owned_identity
+            try:
+                with self.assertRaises(template_source.TemplateSourceError) as raised:
+                    with template_source.snapshot_source_set([source], staging_parent=root):
+                        pass
+            finally:
+                template_source._identity = original_identity
+            self.assertEqual(str(raised.exception), "snapshot_filesystem_error")
+            self.assertNotIn(str(root), str(raised.exception))
+            snapshots = list(root.glob("codex-template-snapshot-*"))
+            self.assertEqual(len(snapshots), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

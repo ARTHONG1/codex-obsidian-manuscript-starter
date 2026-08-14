@@ -283,9 +283,12 @@ def snapshot_source_set(
     validated_parent = _validate_staging_parent(staging_parent)
     parent = validated_parent[0] if validated_parent else None
     cleanup_parent = parent or Path(tempfile.gettempdir())
-    cleanup_parent_identity = validated_parent[1] if validated_parent else _identity(cleanup_parent)
-    owned = Path(tempfile.mkdtemp(prefix="codex-template-snapshot-", dir=parent))
-    owned_identity = _identity(owned)
+    try:
+        cleanup_parent_identity = validated_parent[1] if validated_parent else _identity(cleanup_parent)
+        owned = Path(tempfile.mkdtemp(prefix="codex-template-snapshot-", dir=parent))
+        owned_identity = _identity(owned)
+    except OSError:
+        raise _source_error("snapshot_filesystem_error") from None
     try:
         snapshots = _copy_and_verify_sources(paths, inspection["sources"], owned)
         yield tuple(snapshots)
