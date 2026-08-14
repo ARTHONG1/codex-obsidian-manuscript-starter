@@ -147,6 +147,11 @@ class RuntimeDependencyContractTests(unittest.TestCase):
         self.assertIn("missing direct requirement", generator)
         self.assertIn("duplicate", generator.lower())
 
+    def test_release_checklist_requires_real_wheelhouse_provenance_gate(self):
+        release = (ROOT / "docs" / "RELEASE.md").read_text(encoding="utf-8")
+        self.assertIn("TASK1_REQUIRE_REAL_WHEELHOUSE='1'", release)
+        self.assertIn("TASK1_REAL_WHEELHOUSE", release)
+
     def test_exporter_documents_benign_root_file_policy_and_stable_errors(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         exporter = (
@@ -207,6 +212,8 @@ class RuntimeLockGeneratorTests(unittest.TestCase):
                 "Pillow-12.3.0-cp312-cp312-manylinux_x86_64.whl",
                 "Pillow-12.3.0-cp312-cp312-macosx_11_0_arm64.whl",
                 "Pillow-12.3.0-py3-none-linux_x86_64.whl",
+                "Pillow-12.3.0-cp313-abi3-win_amd64.whl",
+                "Pillow-12.3.0-cp312-abi3-manylinux_x86_64.whl",
             )
             for filename in rejected:
                 _write_wheel(
@@ -252,12 +259,14 @@ class RuntimeLockGeneratorTests(unittest.TestCase):
                         generator.wheel_identity(wheel_path)
                     wheel_path.unlink()
 
-    def test_accepts_real_windows_python_312_compatible_tags(self):
+    def test_accepts_real_windows_python_312_compatible_tags_through_identity(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             wheel_dir = Path(temp_dir)
             accepted = (
                 ("Pillow", "12.3.0", "Pillow-12.3.0-cp312-cp312-win_amd64.whl"),
+                ("Pillow", "12.3.0", "Pillow-12.3.0-cp312-abi3-win_amd64.whl"),
                 ("cryptography", "50.0.0", "cryptography-50.0.0-cp311-abi3-win_amd64.whl"),
+                ("cryptography", "50.0.0", "cryptography-50.0.0-cp37-abi3-win_amd64.whl"),
                 ("python-docx", "1.2.0", "python_docx-1.2.0-py3-none-any.whl"),
                 ("pypdfium2", "5.12.1", "pypdfium2-5.12.1-py3-none-win_amd64.whl"),
             )
@@ -269,7 +278,10 @@ class RuntimeLockGeneratorTests(unittest.TestCase):
                     version,
                     _filename_tag(filename),
                 )
-                generator.parse_wheel_tags(wheel_dir / filename)
+                self.assertEqual(
+                    generator.wheel_identity(wheel_dir / filename),
+                    (generator.canonicalize_name(name), version),
+                )
                 (wheel_dir / filename).unlink()
 
     def test_generator_cli_is_deterministic_and_preserves_direct_pins(self):
@@ -392,6 +404,11 @@ class RuntimeLockGeneratorTests(unittest.TestCase):
     def test_real_wheelhouse_recreates_committed_lock_when_provided(self):
         wheelhouse = os.environ.get("TASK1_REAL_WHEELHOUSE")
         if not wheelhouse:
+            if os.environ.get("TASK1_REQUIRE_REAL_WHEELHOUSE") == "1":
+                self.fail(
+                    "TASK1_REAL_WHEELHOUSE is required when real-wheelhouse "
+                    "provenance is being certified"
+                )
             self.skipTest("TASK1_REAL_WHEELHOUSE not set")
         wheelhouse_path = Path(wheelhouse)
         self.assertTrue(wheelhouse_path.is_dir(), "real wheelhouse must exist")

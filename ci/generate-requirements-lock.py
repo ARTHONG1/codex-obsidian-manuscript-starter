@@ -15,14 +15,6 @@ from pathlib import Path
 _PINNED_REQUIREMENT = re.compile(
     r"^\s*([A-Za-z0-9][A-Za-z0-9_.-]*)\s*==\s*([^\s;#]+)"
 )
-_ALLOWED_WHEEL_TAGS = {
-    ("cp312", "cp312", "win_amd64"),
-    ("cp311", "abi3", "win_amd64"),
-    ("py3", "none", "any"),
-    ("py3", "none", "win_amd64"),
-}
-
-
 def canonicalize_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
@@ -58,7 +50,25 @@ def parse_wheel_tags(path: Path) -> tuple[str, str, str]:
     if len(parts) != 4:
         raise ValueError(f"invalid wheel filename: {path.name}")
     tag = (parts[1], parts[2], parts[3])
-    if tag not in _ALLOWED_WHEEL_TAGS:
+    python_tag, abi_tag, platform_tag = tag
+    is_pure_python = (
+        python_tag == "py3"
+        and abi_tag == "none"
+        and platform_tag in {"any", "win_amd64"}
+    )
+    abi3_match = re.fullmatch(r"cp3(\d+)", python_tag)
+    abi3_compatible = (
+        abi3_match is not None
+        and 2 <= int(abi3_match.group(1)) <= 12
+        and abi_tag == "abi3"
+        and platform_tag == "win_amd64"
+    )
+    is_cp312 = (
+        python_tag == "cp312"
+        and abi_tag == "cp312"
+        and platform_tag == "win_amd64"
+    )
+    if not (is_pure_python or abi3_compatible or is_cp312):
         rendered = "-".join(tag)
         raise ValueError(f"unsupported wheel tag: {rendered}")
     return tag
