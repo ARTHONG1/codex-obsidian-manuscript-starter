@@ -26,30 +26,34 @@ if ($null -eq $stage) {
     Set-InstallStage -RuntimeRoot $paths.RuntimeRoot -Stage "preflight" | Out-Null
 }
 
-$pythonState = Find-Python312
-if (-not $pythonState.Ready) {
+$base = Find-Python312
+if (-not $base.Ready) {
     $wingetCommand = Get-Command winget.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $wingetCommand) {
-        throw "python_dependency_missing: Python 3.12 with the six pinned document packages is required. Install Python from https://www.python.org/downloads/windows/ and rerun this command."
+        return [pscustomobject]@{
+            Status = "python_install_manual_required"
+            Recovery = "Install Python 3.12 or WinGet, then rerun the same installer command."
+        }
     }
-    $pythonInstall = Install-Python312 -WingetPath $wingetCommand.Source
-    if ($pythonInstall.Status -ne "python_installed") {
-        throw "python_dependency_missing: $($pythonInstall.Recovery)"
+    $install = Install-Python312 -WingetPath $wingetCommand.Source
+    if ($install.Status -ne "python_installed") {
+        return $install
     }
-    $pythonState = Find-Python312
-    if (-not $pythonState.Ready) {
+    $base = Find-Python312
+    if (-not $base.Ready) {
         return [pscustomobject]@{
             Status = "python_installed_restart_required"
-            Recovery = "Close and reopen Codex, then rerun the same installer command."
+            Recovery = "Restart Codex and rerun the same installer command."
         }
     }
 }
-$runtimeState = Test-PythonRuntime -PythonPath $pythonState.Python
-if (-not $runtimeState.Ready) {
-    # requirements.lock.txt is consumed by the managed venv flow deferred to Task 3/5.
-    return Get-PythonRuntimeDeferredStatus -PythonPath $pythonState.Python
-}
-Set-InstallStage -RuntimeRoot $paths.RuntimeRoot -Stage "dependency_ready" | Out-Null
+Set-InstallStage -RuntimeRoot $paths.RuntimeRoot -Stage "base_python_ready" | Out-Null
+
+$lockPath = Join-Path (Split-Path -Parent $bootstrapRoot) "requirements.lock.txt"
+$managed = New-VerifiedManagedVenv -BasePython $base.Python -RuntimeRoot $paths.RuntimeRoot `
+    -RequirementsLockPath $lockPath -ProbePath (Join-Path $bootstrapRoot "verify_python_runtime.py")
+Set-InstallStage -RuntimeRoot $paths.RuntimeRoot -Stage "venv_ready" | Out-Null
+Set-InstallStage -RuntimeRoot $paths.RuntimeRoot -Stage "dependencies_ready" | Out-Null
 
 $obsidian = Find-ObsidianExecutable
 if (-not $obsidian) {
@@ -101,9 +105,19 @@ if ($existingInstallation.Ready) {
     $installation = Install-PinnedLocalRestPlugin -VaultPath $paths.VaultPath -EnableCommunityPlugin
 }
 Set-InstallStage -RuntimeRoot $paths.RuntimeRoot -Stage "local_rest_ready" | Out-Null
-Save-RuntimeConfig -Paths $paths | Out-Null
+$runtime = if (Test-Path -LiteralPath $paths.RuntimeConfigPath -PathType Leaf) {
+    Get-RuntimeConfig -RuntimeConfigPath $paths.RuntimeConfigPath
+} else {
+    $null
+}
+if ($runtime -and $runtime.NeedsMigration) {
+    Convert-RuntimeConfigV1ToV2 -RuntimeConfigPath $paths.RuntimeConfigPath -Paths $paths -PythonRuntime $managed | Out-Null
+} else {
+    Save-RuntimeConfig -Paths $paths -PythonRuntime $managed | Out-Null
+}
 Set-InstallStage -RuntimeRoot $paths.RuntimeRoot -Stage "runtime_ready" | Out-Null
 $publication = Initialize-PublicationLibrary -PublicationRoot $paths.PublicationRoot -VaultPath $paths.VaultPath
+Set-InstallStage -RuntimeRoot $paths.RuntimeRoot -Stage "ready" | Out-Null
 
 if ($LaunchObsidian) {
     Start-Process -FilePath $obsidian -ArgumentList ("--vault `"{0}`"" -f $paths.VaultPath)

@@ -12,11 +12,13 @@ $bootstrapRoot = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $bootstrapRoot "lib\Environment.psm1") -Force
 Import-Module (Join-Path $bootstrapRoot "lib\LocalRest.psm1") -Force
 Import-Module (Join-Path $bootstrapRoot "lib\PublicationLibrary.psm1") -Force
-
-$pythonState = Test-PythonRuntime
-if (-not $pythonState.Ready) { throw "python_dependency_missing: Python 3.12 and the six pinned document packages are required; rerun the installer and review the runtime probe result." }
+Import-Module (Join-Path $bootstrapRoot "lib\PythonRuntime.psm1") -Force
 
 $runtime = if ($RuntimeConfigPath) { Get-RuntimeConfig -RuntimeConfigPath $RuntimeConfigPath } else { Get-RuntimeConfig }
+if ($runtime.NeedsMigration) { throw "runtime_migration_required: rerun the installer to migrate the managed runtime." }
+$pythonState = Test-ManagedPythonRuntime -PythonPath $runtime.venvPythonExecutable `
+    -RequirementsHash $runtime.requirementsHash -ProbePath (Join-Path $bootstrapRoot "verify_python_runtime.py")
+if (-not $pythonState.Ready) { throw "python_dependency_missing: the recorded managed Python runtime failed verification; rerun the installer." }
 if (-not (Test-Path -LiteralPath $runtime.vaultPath -PathType Container)) { throw "Configured vault does not exist: $($runtime.vaultPath)" }
 $publicationRoot = Resolve-PublicationRoot -PublicationRoot $runtime.publicationRoot
 $publication = Test-PublicationLibrary -PublicationRoot $publicationRoot -VaultPath $runtime.vaultPath

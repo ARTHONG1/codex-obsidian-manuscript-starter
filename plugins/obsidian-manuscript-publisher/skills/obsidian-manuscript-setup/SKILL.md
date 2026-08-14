@@ -24,6 +24,12 @@ Proceed only after the user explicitly approves this Local REST community-plugin
 3. If Obsidian installation reports a restart requirement, ask the user to reopen Codex and resume at the same step. Do not create a Vault before the installer has both the explicit community-plugin consent and a usable Obsidian installation path.
 4. When Obsidian opens, run this plugin's `bootstrap\\doctor.ps1`. It must pass a create-read-delete test of a temporary `_system` note through the local REST API. The doctor result must be `ready` before using `obsidian-manuscript-publisher`.
 
+## Resumable Runtime
+
+The installer records progress through these stages: `preflight`, `base_python_ready`, `venv_ready`, `dependencies_ready`, `vault_ready`, `local_rest_ready`, `runtime_ready`, `doctor_verified`, and `ready`. Re-running the same command is safe after a Codex or Obsidian restart; each stage is probed again rather than trusted solely because a stage file exists.
+
+Python 3.12 is used only as the base interpreter for creating the product-owned managed venv. Dependencies are installed and checked with the recorded `venvPythonExecutable` from schema-v2 `runtime.json`; do not substitute `python`, `py`, or another interpreter. If the runtime file is schema v1, rerun the installer to perform the explicit managed-runtime migration before running the doctor.
+
 ## Recovery Rules
 
 - If the doctor cannot connect, keep Obsidian open, verify that the Local REST API plugin remains enabled, and rerun the doctor. Do not fall back to direct Vault filesystem writes.

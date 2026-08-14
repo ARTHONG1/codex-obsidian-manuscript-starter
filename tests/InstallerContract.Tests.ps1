@@ -67,23 +67,39 @@ function Resolve-InstallPaths {
     }
 }
 function Save-RuntimeConfig {
-    param([psobject]$Paths)
+    param([psobject]$Paths, [psobject]$PythonRuntime)
     New-Item -ItemType Directory -Path $Paths.RuntimeRoot -Force | Out-Null
     [ordered]@{
-        schemaVersion = 1
+        schemaVersion = 2
         vaultPath = $Paths.VaultPath
         restDataPath = $Paths.RestDataPath
         publicationRoot = $Paths.PublicationRoot
+        pythonExecutable = $PythonRuntime.BasePython
+        venvRoot = $PythonRuntime.VenvRoot
+        venvPythonExecutable = $PythonRuntime.Python
+        requirementsHash = $PythonRuntime.RequirementsHash
+        lastCompletedStage = $null
     } | ConvertTo-Json | Set-Content -LiteralPath $Paths.RuntimeConfigPath -Encoding UTF8
     return $Paths.RuntimeConfigPath
 }
 function Get-RuntimeConfig {
     param([string]$RuntimeConfigPath)
-    return Get-Content -Raw -LiteralPath $RuntimeConfigPath | ConvertFrom-Json
+    $runtime = Get-Content -Raw -LiteralPath $RuntimeConfigPath | ConvertFrom-Json
+    $runtime | Add-Member -NotePropertyName NeedsMigration -NotePropertyValue $false -Force
+    return $runtime
+}
+function Convert-RuntimeConfigV1ToV2 {
+    param([string]$RuntimeConfigPath, [psobject]$Paths, [psobject]$PythonRuntime)
+    Save-RuntimeConfig -Paths $Paths -PythonRuntime $PythonRuntime | Out-Null
+    return "$RuntimeConfigPath.v1.bak"
 }
 function Find-ObsidianExecutable { return (Join-Path $env:WINDIR "explorer.exe") }
-function Test-PythonRuntime { return [pscustomobject]@{ Ready = $true; Reason = "ready"; Python = "python" } }
-Export-ModuleMember -Function Resolve-InstallPaths, Save-RuntimeConfig, Get-RuntimeConfig, Find-ObsidianExecutable, Test-PythonRuntime
+function Set-InstallStage {
+    param([string]$RuntimeRoot, [string]$Stage)
+    New-Item -ItemType Directory -Path $RuntimeRoot -Force | Out-Null
+    [ordered]@{ schemaVersion = 2; stage = $Stage } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $RuntimeRoot "install-stage.json") -Encoding UTF8
+}
+Export-ModuleMember -Function Resolve-InstallPaths, Save-RuntimeConfig, Get-RuntimeConfig, Convert-RuntimeConfigV1ToV2, Find-ObsidianExecutable, Set-InstallStage
 '@ | Set-Content -LiteralPath (Join-Path $libRoot "Environment.psm1") -Encoding UTF8
 
     @'
@@ -93,7 +109,25 @@ function Find-Python312 {
 function Install-Python312 {
     [pscustomobject]@{ Status = "python_installed"; Recovery = "test" }
 }
-Export-ModuleMember -Function Find-Python312, Install-Python312
+function New-VerifiedManagedVenv {
+    param([string]$BasePython, [string]$RuntimeRoot, [string]$RequirementsLockPath, [string]$ProbePath)
+    $venvRoot = Join-Path $RuntimeRoot "venv"
+    New-Item -ItemType Directory -Path (Join-Path $venvRoot "Scripts") -Force | Out-Null
+    [pscustomobject]@{
+        Ready = $true
+        BasePython = $BasePython
+        Python = (Join-Path $venvRoot "Scripts\python.exe")
+        VenvRoot = $venvRoot
+        RequirementsHash = ("a" * 64)
+        Reused = $false
+        Backup = $null
+    }
+}
+function Test-ManagedPythonRuntime {
+    param([string]$PythonPath, [string]$RequirementsHash, [string]$ProbePath)
+    [pscustomobject]@{ Ready = $true; Reason = "ready"; Python = $PythonPath; RequirementsHash = $RequirementsHash }
+}
+Export-ModuleMember -Function Find-Python312, Install-Python312, New-VerifiedManagedVenv, Test-ManagedPythonRuntime
 '@ | Set-Content -LiteralPath (Join-Path $libRoot "PythonRuntime.psm1") -Encoding UTF8
 
     @'
@@ -150,6 +184,48 @@ Export-ModuleMember -Function Resolve-PublicationRoot, Initialize-PublicationLib
 }
 
 Describe "Beginner installer safety contract" {
+    It "coordinates the nine approved resumable stages around the managed venv" {
+        foreach ($bootstrapRoot in @(
+            (Join-Path $repoRoot "bootstrap"),
+            (Join-Path $repoRoot "plugins\obsidian-manuscript-publisher\bootstrap")
+        )) {
+            $installer = Get-Content -Raw -LiteralPath (Join-Path $bootstrapRoot "install-windows.ps1") -Encoding UTF8
+            foreach ($stage in @("preflight", "base_python_ready", "venv_ready", "dependencies_ready", "vault_ready", "local_rest_ready", "runtime_ready", "ready")) {
+                $installer | Should Match ([regex]::Escape("Set-InstallStage -RuntimeRoot `$paths.RuntimeRoot -Stage `"$stage`""))
+            }
+            $installer | Should Match 'New-VerifiedManagedVenv\s+-BasePython\s+\$base\.Python'
+            $installer | Should Match 'Save-RuntimeConfig\s+-Paths\s+\$paths\s+-PythonRuntime\s+\$managed'
+            $installer | Should Not Match 'Test-PythonRuntime\s+-PythonPath'
+            $installer | Should Not Match 'Get-PythonRuntimeDeferredStatus'
+        }
+    }
+
+    It "uses only the managed venv interpreter for dependency installation" {
+        foreach ($bootstrapRoot in @(
+            (Join-Path $repoRoot "bootstrap"),
+            (Join-Path $repoRoot "plugins\obsidian-manuscript-publisher\bootstrap")
+        )) {
+            $installer = Get-Content -Raw -LiteralPath (Join-Path $bootstrapRoot "install-windows.ps1") -Encoding UTF8
+            $installer | Should Match 'New-VerifiedManagedVenv'
+            $installer | Should Not Match '(?im)^\s*&\s*\$base\.Python\s+-m\s+pip\b'
+            $installer | Should Not Match '(?im)^\s*&\s*\$pythonState\.Python\s+-m\s+pip\b'
+        }
+    }
+
+    It "makes doctor load schema-v2 runtime and probe only its recorded venv executable" {
+        foreach ($bootstrapRoot in @(
+            (Join-Path $repoRoot "bootstrap"),
+            (Join-Path $repoRoot "plugins\obsidian-manuscript-publisher\bootstrap")
+        )) {
+            $doctor = Get-Content -Raw -LiteralPath (Join-Path $bootstrapRoot "doctor.ps1") -Encoding UTF8
+            $doctor | Should Match 'Get-RuntimeConfig'
+            $doctor | Should Match 'NeedsMigration'
+            $doctor | Should Match 'Test-ManagedPythonRuntime\s+-PythonPath\s+\$runtime\.venvPythonExecutable'
+            $doctor | Should Not Match 'Test-PythonRuntime'
+            $doctor | Should Not Match '(?im)\bpython\.exe\b|\bGet-Command\s+python\b'
+        }
+    }
+
     It "integrates PythonRuntime into both packaged installers" {
         foreach ($bootstrapRoot in @(
             (Join-Path $repoRoot "bootstrap"),
@@ -157,8 +233,8 @@ Describe "Beginner installer safety contract" {
         )) {
             $installer = Get-Content -Raw -LiteralPath (Join-Path $bootstrapRoot "install-windows.ps1") -Encoding UTF8
             $installer | Should Match 'PythonRuntime\.psm1'
-            $installer | Should Match '\$pythonState = Find-Python312'
-            $installer | Should Match '\$pythonInstall = Install-Python312'
+            $installer | Should Match '\$base = Find-Python312'
+            $installer | Should Match '\$install = Install-Python312'
         }
     }
 
@@ -169,7 +245,7 @@ Describe "Beginner installer safety contract" {
         )) {
             $installer = Get-Content -Raw -LiteralPath (Join-Path $bootstrapRoot "install-windows.ps1") -Encoding UTF8
             $installer | Should Not Match '(?im)^\s*&\s*\$pythonState\.Python\s+-m\s+pip\b'
-            $installer | Should Match 'Get-PythonRuntimeDeferredStatus'
+            $installer | Should Match 'New-VerifiedManagedVenv'
             $installer | Should Match 'requirements\.lock\.txt'
         }
     }
@@ -180,9 +256,9 @@ Describe "Beginner installer safety contract" {
             (Join-Path $repoRoot "plugins\obsidian-manuscript-publisher\bootstrap")
         )) {
             $installer = Get-Content -Raw -LiteralPath (Join-Path $bootstrapRoot "install-windows.ps1") -Encoding UTF8
-            $installIndex = $installer.IndexOf('$pythonInstall = Install-Python312')
+            $installIndex = $installer.IndexOf('$install = Install-Python312')
             $rediscoveryIndex = if ($installIndex -ge 0) {
-                $installer.IndexOf('$pythonState = Find-Python312', $installIndex + 1)
+                $installer.IndexOf('$base = Find-Python312', $installIndex + 1)
             } else {
                 -1
             }
@@ -795,10 +871,14 @@ Describe "Beginner installer safety contract" {
         $runtimePath = Join-Path $TestDrive "doctor-runtime.json"
         New-Item -ItemType Directory -Path $vaultPath, $publicationRoot -Force | Out-Null
         [ordered]@{
-            schemaVersion = 1
+            schemaVersion = 2
             vaultPath = [IO.Path]::GetFullPath($vaultPath)
             restDataPath = Join-Path ([IO.Path]::GetFullPath($vaultPath)) ".obsidian\plugins\obsidian-local-rest-api\data.json"
             publicationRoot = [IO.Path]::GetFullPath($publicationRoot)
+            pythonExecutable = "C:\Python312\python.exe"
+            venvRoot = "C:\managed\venv"
+            venvPythonExecutable = "C:\managed\venv\Scripts\python.exe"
+            requirementsHash = ("a" * 64)
         } | ConvertTo-Json | Set-Content -LiteralPath $runtimePath -Encoding UTF8
 
         $result = & $harness.DoctorScript -RuntimeConfigPath $runtimePath -TimeoutSeconds 1
@@ -819,10 +899,14 @@ Describe "Beginner installer safety contract" {
         $sentinelPath = Join-Path $publicationRoot "user-content.txt"
         Set-Content -LiteralPath $sentinelPath -Value "preserve me" -Encoding UTF8 -NoNewline
         [ordered]@{
-            schemaVersion = 1
+            schemaVersion = 2
             vaultPath = [IO.Path]::GetFullPath($vaultPath)
             restDataPath = Join-Path ([IO.Path]::GetFullPath($vaultPath)) ".obsidian\plugins\obsidian-local-rest-api\data.json"
             publicationRoot = [IO.Path]::GetFullPath($publicationRoot)
+            pythonExecutable = "C:\Python312\python.exe"
+            venvRoot = "C:\managed\venv"
+            venvPythonExecutable = "C:\managed\venv\Scripts\python.exe"
+            requirementsHash = ("a" * 64)
         } | ConvertTo-Json | Set-Content -LiteralPath $runtimePath -Encoding UTF8
 
         { & $harness.DoctorScript -RuntimeConfigPath $runtimePath -TimeoutSeconds 1 } | Should Throw
