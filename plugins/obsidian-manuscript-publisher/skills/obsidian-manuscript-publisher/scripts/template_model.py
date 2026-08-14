@@ -81,3 +81,9 @@ class Template:
 
     def candidate_id(self) -> str:
         return "c-" + hashlib.sha256(self.canonical_json().encode("utf-8")).hexdigest()[:16]
+
+
+def candidate_id_for_inputs(inputs: dict[str, Any]) -> str:
+    """Hash only canonical candidate inputs; timestamps and absolute paths are excluded by callers."""
+    canonical = json.dumps(inputs, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "c-" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
