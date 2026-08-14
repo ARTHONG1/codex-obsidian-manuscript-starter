@@ -83,6 +83,7 @@ def register_candidate(runtime_config: Any, candidate_dir: str | Path, approval:
         registry = {
             "schema_version": 1,
             "template_id": candidate_id,
+            "display_name": json.loads(payloads["template.json"].decode("utf-8")).get("display_name", ""),
             "version": version,
             "status": "approved",
             "files": hashes,
