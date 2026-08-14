@@ -1,5 +1,7 @@
 import json
 import re
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -105,6 +107,58 @@ class CiContractTests(unittest.TestCase):
         self.assertNotIn("Invoke-Expression", resolver)
         self.assertNotIn("Start-Process", resolver)
         self.assertRegex(resolver, r"\b40\b")
+
+    def test_resolver_injected_api_uses_exact_tag_ref_url_and_dereferences_safely(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            harness = Path(temp_dir) / "resolver-harness.ps1"
+            output = Path(temp_dir) / "action-lock.json"
+            seen_urls = Path(temp_dir) / "seen-urls.txt"
+            harness.write_text(
+                f"""
+$global:SeenUrls = @()
+function Invoke-MockGitHubApi {{
+    param([string]$Url)
+    $global:SeenUrls += $Url
+    switch ($Url) {{
+        "https://api.github.com/repos/actions/checkout/git/ref/tags/v4.2.2" {{
+            return '{{"object":{{"type":"tag","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},"message":"$(Write-Output hacked)"}}'
+        }}
+        "https://api.github.com/repos/actions/checkout/git/tags/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {{
+            return '{{"object":{{"type":"commit","sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},"message":"$(Write-Output hacked)"}}'
+        }}
+        default {{ throw "Unexpected URL: $Url" }}
+    }}
+}}
+$mockApi = ${{function:Invoke-MockGitHubApi}}
+& "{RESOLVER}" -OutputPath "{output}" -Allowlist @{{ "actions/checkout" = "v4.2.2" }} -ApiInvoker $mockApi
+"$($global:SeenUrls -join [Environment]::NewLine)" | Set-Content -LiteralPath "{seen_urls}"
+""",
+                encoding="utf-8",
+            )
+            completed = subprocess.run(
+                ["pwsh", "-NoProfile", "-File", str(harness)],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(
+                json.loads(output.read_text(encoding="utf-8"))["actions/checkout"]["sha"],
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            )
+            self.assertEqual(
+                json.loads(output.read_text(encoding="utf-8"))["actions/checkout"]["reviewed_ref"],
+                "v4.2.2",
+            )
+            self.assertEqual(
+                seen_urls.read_text(encoding="utf-8").splitlines(),
+                [
+                    "https://api.github.com/repos/actions/checkout/git/ref/tags/v4.2.2",
+                    "https://api.github.com/repos/actions/checkout/git/tags/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                ],
+            )
 
     def test_dependency_lock_copies_record_the_same_gitleaks_identity(self):
         paths = (
