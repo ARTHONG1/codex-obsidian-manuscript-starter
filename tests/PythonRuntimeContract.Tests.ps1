@@ -349,4 +349,153 @@ Describe "Python 3.12 runtime contract" {
         }
         $threw | Should Be $true
     }
+
+    It "captures default runner stdout and stderr separately and rejects nonzero probes" {
+        $python = "C:\Users\user\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
+        $probe = Join-Path $TestDrive "probe.py"
+        Set-Content -Path $probe -Value 'import sys; print("{""ready"":true,""requirements_hash"":""aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa""}"); print("noise", file=sys.stderr); sys.exit(7)'
+
+        $result = Test-ManagedPythonRuntime -PythonPath $python -RequirementsHash ("a" * 64) -ProbePath $probe
+
+        $result.Ready | Should Be $false
+        $result.Reason | Should Be "probe_failed"
+    }
+
+    It "reuses a valid active runtime without creating a candidate" {
+        $root = Join-Path $TestDrive "reuse"
+        $lock = Join-Path $TestDrive "reuse.lock"
+        $probePath = Join-Path $TestDrive "verify.py"
+        New-Item -ItemType Directory -Path (Join-Path $root "venv\Scripts") -Force | Out-Null
+        New-Item -ItemType File -Path (Join-Path $root "venv\Scripts\python.exe") -Force | Out-Null
+        Set-Content -Path $lock -Value "same"
+        New-Item -ItemType File -Path $probePath -Force | Out-Null
+        $hash = (Get-FileHash -LiteralPath $lock -Algorithm SHA256).Hash.ToLowerInvariant()
+        $calls = New-Object System.Collections.ArrayList
+        $runner = {
+            param([string]$Executable, [string[]]$Arguments)
+            [void]$calls.Add([pscustomobject]@{ Executable = $Executable; Arguments = $Arguments })
+            [pscustomobject]@{ ExitCode = 0; Output = ('{"ready":true,"requirements_hash":"' + $hash + '"}'); Error = "" }
+        }.GetNewClosure()
+
+        $result = New-VerifiedManagedVenv -BasePython "C:\base\python.exe" -RuntimeRoot $root -RequirementsLockPath $lock -ProbePath $probePath -ProcessRunner $runner
+
+        $result.Reused | Should Be $true
+        ($calls | Where-Object { $_.Arguments -contains "venv" }).Count | Should Be 0
+    }
+
+    It "rebuilds when the active runtime has a stale requirements hash" {
+        $root = Join-Path $TestDrive "stale"
+        $lock = Join-Path $TestDrive "stale.lock"
+        $probePath = Join-Path $TestDrive "verify.py"
+        New-Item -ItemType Directory -Path (Join-Path $root "venv\Scripts") -Force | Out-Null
+        New-Item -ItemType File -Path (Join-Path $root "venv\Scripts\python.exe") -Force | Out-Null
+        Set-Content -Path $lock -Value "new"
+        New-Item -ItemType File -Path $probePath -Force | Out-Null
+        $hash = (Get-FileHash -LiteralPath $lock -Algorithm SHA256).Hash.ToLowerInvariant()
+        $calls = New-Object System.Collections.ArrayList
+        $state = @{ ProbeCount = 0 }
+        $runner = {
+            param([string]$Executable, [string[]]$Arguments)
+            [void]$calls.Add([pscustomobject]@{ Executable = $Executable; Arguments = $Arguments })
+            if ($Arguments -contains "venv") {
+                $candidate = $Arguments[$Arguments.Count - 1]
+                New-Item -ItemType Directory -Path (Join-Path $candidate "Scripts") -Force | Out-Null
+                New-Item -ItemType File -Path (Join-Path $candidate "Scripts\python.exe") -Force | Out-Null
+            }
+            $state.ProbeCount++
+            if ($state.ProbeCount -eq 1) {
+                return [pscustomobject]@{ ExitCode = 0; Output = '{"ready":true,"requirements_hash":"old"}'; Error = "" }
+            }
+            [pscustomobject]@{ ExitCode = 0; Output = ('{"ready":true,"requirements_hash":"' + $hash + '"}'); Error = "" }
+        }.GetNewClosure()
+
+        $result = New-VerifiedManagedVenv -BasePython "C:\base\python.exe" -RuntimeRoot $root -RequirementsLockPath $lock -ProbePath $probePath -ProcessRunner $runner
+
+        $result.Reused | Should Be $false
+        $calls.Count | Should BeGreaterThan 1
+    }
+
+    It "preserves the active runtime when candidate creation fails" {
+        $root = Join-Path $TestDrive "failed-candidate"
+        $lock = Join-Path $TestDrive "failed.lock"
+        $probePath = Join-Path $TestDrive "verify.py"
+        $activePython = Join-Path $root "venv\Scripts\python.exe"
+        New-Item -ItemType Directory -Path (Split-Path $activePython) -Force | Out-Null
+        Set-Content -Path $activePython -Value "active"
+        Set-Content -Path $lock -Value "new"
+        New-Item -ItemType File -Path $probePath -Force | Out-Null
+        $runner = {
+            param([string]$Executable, [string[]]$Arguments)
+            if ($Arguments -contains "venv") { return [pscustomobject]@{ ExitCode = 9; Output = ""; Error = "failed" } }
+            [pscustomobject]@{ ExitCode = 0; Output = ""; Error = "" }
+        }
+
+        try { [void](New-VerifiedManagedVenv -BasePython "C:\base\python.exe" -RuntimeRoot $root -RequirementsLockPath $lock -ProbePath $probePath -ProcessRunner $runner) } catch {}
+
+        (Get-Content -Raw $activePython).Trim() | Should Be "active"
+    }
+
+    It "rolls back the active runtime after post-promotion verification fails" {
+        $root = Join-Path $TestDrive "rollback"
+        $lock = Join-Path $TestDrive "rollback.lock"
+        $probePath = Join-Path $TestDrive "verify.py"
+        $activePython = Join-Path $root "venv\Scripts\python.exe"
+        New-Item -ItemType Directory -Path (Split-Path $activePython) -Force | Out-Null
+        Set-Content -Path $activePython -Value "active"
+        Set-Content -Path $lock -Value "new"
+        New-Item -ItemType File -Path $probePath -Force | Out-Null
+        $hash = (Get-FileHash -LiteralPath $lock -Algorithm SHA256).Hash.ToLowerInvariant()
+        $probeCount = 0
+        $runner = {
+            param([string]$Executable, [string[]]$Arguments)
+            if ($Arguments -contains "venv") {
+                $candidate = $Arguments[$Arguments.Count - 1]
+                New-Item -ItemType Directory -Path (Join-Path $candidate "Scripts") -Force | Out-Null
+                Set-Content -Path (Join-Path $candidate "Scripts\python.exe") -Value "candidate"
+            }
+            if ($Arguments -contains $probePath) {
+                $script:probeCount++
+                if ($script:probeCount -eq 2) { return [pscustomobject]@{ ExitCode = 0; Output = '{"ready":false,"requirements_hash":"bad"}'; Error = "" } }
+            }
+            [pscustomobject]@{ ExitCode = 0; Output = ('{"ready":true,"requirements_hash":"' + $hash + '"}'); Error = "" }
+        }.GetNewClosure()
+
+        try { [void](New-VerifiedManagedVenv -BasePython "C:\base\python.exe" -RuntimeRoot $root -RequirementsLockPath $lock -ProbePath $probePath -ProcessRunner $runner) } catch {}
+
+        (Get-Content -Raw $activePython).Trim() | Should Be "active"
+    }
+
+    It "rejects a backup path beneath a reparse point" {
+        $root = Join-Path $TestDrive "reparse-backup"
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        $paths = Get-ManagedVenvPaths -RuntimeRoot $root
+        $backup = Join-Path $root "venv.backup-test"
+        New-Item -ItemType Directory -Path $backup -Force | Out-Null
+        $result = & (Get-Command New-VerifiedManagedVenv).Module { Test-NoReparsePointInPath $args[0] } $backup
+        $result | Should Be $true
+    }
+
+    It "returns a null backup after successful cleanup" {
+        $root = Join-Path $TestDrive "cleanup"
+        $lock = Join-Path $TestDrive "cleanup.lock"
+        $probePath = Join-Path $TestDrive "verify.py"
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        Set-Content -Path $lock -Value "new"
+        New-Item -ItemType File -Path $probePath -Force | Out-Null
+        $hash = (Get-FileHash -LiteralPath $lock -Algorithm SHA256).Hash.ToLowerInvariant()
+        $runner = {
+            param([string]$Executable, [string[]]$Arguments)
+            if ($Arguments -contains "venv") {
+                $candidate = $Arguments[$Arguments.Count - 1]
+                New-Item -ItemType Directory -Path (Join-Path $candidate "Scripts") -Force | Out-Null
+                New-Item -ItemType File -Path (Join-Path $candidate "Scripts\python.exe") -Force | Out-Null
+            }
+            [pscustomobject]@{ ExitCode = 0; Output = ('{"ready":true,"requirements_hash":"' + $hash + '"}'); Error = "" }
+        }.GetNewClosure()
+
+        $result = New-VerifiedManagedVenv -BasePython "C:\base\python.exe" -RuntimeRoot $root -RequirementsLockPath $lock -ProbePath $probePath -ProcessRunner $runner
+
+        $result.Backup | Should Be $null
+        (Get-ChildItem -LiteralPath $root -Filter "venv.backup-*" -ErrorAction SilentlyContinue).Count | Should Be 0
+    }
 }

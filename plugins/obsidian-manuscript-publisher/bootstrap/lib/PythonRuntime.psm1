@@ -171,8 +171,21 @@ function Find-Python312 {
 
 function Invoke-DefaultProcessRunner {
     param([string]$Executable, [string[]]$Arguments)
-    & $Executable @Arguments
-    return [pscustomobject]@{ ExitCode = $LASTEXITCODE }
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $process.StartInfo.FileName = $Executable
+    $process.StartInfo.UseShellExecute = $false
+    $process.StartInfo.RedirectStandardOutput = $true
+    $process.StartInfo.RedirectStandardError = $true
+    $process.StartInfo.Arguments = (($Arguments | ForEach-Object {
+        $value = [string]$_
+        if ($value -match '[\s"]') { '"' + ($value -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"' } else { $value }
+    }) -join " ")
+    if (-not $process.Start()) { throw "Process start failed." }
+    $output = $process.StandardOutput.ReadToEnd()
+    $errorOutput = $process.StandardError.ReadToEnd()
+    $process.WaitForExit()
+    return [pscustomobject]@{ Output = $output; Error = $errorOutput; ExitCode = $process.ExitCode }
 }
 
 function Get-ManagedVenvPaths {
@@ -218,7 +231,10 @@ function Test-ManagedPythonRuntime {
     if ($null -eq $ProcessRunner) { $ProcessRunner = ${function:Invoke-DefaultProcessRunner} }
     try {
         $result = & $ProcessRunner $PythonPath @($ProbePath, "--requirements-hash", $RequirementsHash)
-        $json = if ($result.Output) { [string]$result.Output } else { [string]($result | Select-Object -Last 1) }
+        if ($null -eq $result -or [int]$result.ExitCode -ne 0) {
+            throw "Probe exited unsuccessfully."
+        }
+        $json = [string]$result.Output
         $probe = $json | ConvertFrom-Json
         $probe | Add-Member -NotePropertyName RequirementsHash -NotePropertyValue ([string]$probe.requirements_hash) -Force
         return $probe
@@ -228,9 +244,16 @@ function Test-ManagedPythonRuntime {
 }
 
 function Remove-OwnedDirectory {
-    param([string]$Path, [string]$Prefix)
-    if ($Path -and (Split-Path -Leaf $Path) -like "$Prefix*") {
-        if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Recurse -Force }
+    param([string]$Root, [string]$Path)
+    $canonicalRoot = ConvertTo-CanonicalPath $Root
+    $canonicalPath = ConvertTo-CanonicalPath $Path
+    if ([string]::IsNullOrWhiteSpace($canonicalRoot) -or [string]::IsNullOrWhiteSpace($canonicalPath) -or
+        -not $canonicalPath.StartsWith($canonicalRoot.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) -or
+        -not (Test-NoReparsePointInPath $canonicalPath)) {
+        throw "Managed cleanup path is unsafe."
+    }
+    if (Test-Path -LiteralPath $canonicalPath) {
+        Remove-Item -LiteralPath $canonicalPath -Recurse -Force
     }
 }
 
@@ -255,6 +278,7 @@ function New-VerifiedManagedVenv {
     $candidate = $paths.CandidateRoot
     $candidatePython = ConvertTo-CanonicalPath (Join-Path $candidate "Scripts\python.exe")
     $backup = ConvertTo-CanonicalPath (Join-Path (Split-Path $active -Parent) ("venv.backup-" + [guid]::NewGuid().ToString("N")))
+    if (-not (Test-NoReparsePointInPath (Split-Path -Parent $backup))) { throw "Backup parent is unsafe." }
     $wasPromoted = $false
     try {
         $r = & $ProcessRunner $BasePython @("-m", "venv", $candidate)
@@ -264,20 +288,30 @@ function New-VerifiedManagedVenv {
         $candidateProbe = Test-ManagedPythonRuntime -PythonPath $candidatePython -RequirementsHash $hash -ProbePath $ProbePath -ProcessRunner $ProcessRunner
         if (-not $candidateProbe.Ready -or [string]$candidateProbe.RequirementsHash -ne $hash) { throw "candidate verification failed." }
         if (Test-Path -LiteralPath $active) {
+            if (-not (Test-NoReparsePointInPath $active)) { throw "Active runtime is unsafe." }
             Move-Item -LiteralPath $active -Destination $backup
+        }
+        if (Test-Path -LiteralPath $candidate) {
+            if (-not (Test-NoReparsePointInPath $candidate)) { throw "Candidate runtime is unsafe." }
+        } elseif (-not (Test-NoReparsePointInPath (Split-Path -Parent $candidate))) {
+            throw "Candidate parent is unsafe."
         }
         Move-Item -LiteralPath $candidate -Destination $active
         $wasPromoted = $true
         $promoted = Test-ManagedPythonRuntime -PythonPath $activePython -RequirementsHash $hash -ProbePath $ProbePath -ProcessRunner $ProcessRunner
         if (-not $promoted.Ready -or [string]$promoted.RequirementsHash -ne $hash) { throw "post-promotion verification failed." }
-        if (Test-Path -LiteralPath $backup) { Remove-OwnedDirectory $backup "venv.backup-" }
+        if (Test-Path -LiteralPath $backup) { Remove-OwnedDirectory (Split-Path -Parent $active) $backup }
+        $backup = $null
         return [pscustomobject]@{ Ready = $true; BasePython = $BasePython; Python = $activePython; VenvRoot = $active; RequirementsHash = $hash; Reused = $false; Backup = $backup }
     } catch {
         if ($wasPromoted -and (Test-Path -LiteralPath $active)) {
-            Remove-OwnedDirectory $active "venv"
+            Remove-OwnedDirectory (Split-Path -Parent $active) $active
         }
-        if (Test-Path -LiteralPath $backup) { Move-Item -LiteralPath $backup -Destination $active }
-        Remove-OwnedDirectory $candidate "venv.candidate-"
+        if (Test-Path -LiteralPath $backup) {
+            if (-not (Test-NoReparsePointInPath $backup)) { throw "Backup runtime is unsafe." }
+            Move-Item -LiteralPath $backup -Destination $active
+        }
+        if (Test-Path -LiteralPath $candidate) { Remove-OwnedDirectory (Split-Path -Parent $active) $candidate }
         throw
     }
 }
