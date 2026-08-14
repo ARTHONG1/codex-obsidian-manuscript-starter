@@ -149,7 +149,7 @@ Describe "Beginner installer safety contract" {
     It "ships the exact same bootstrap files inside the installable plugin" {
         $pluginBootstrap = Join-Path $repoRoot "plugins\obsidian-manuscript-publisher\bootstrap"
         Test-Path (Join-Path $repoRoot "plugins\obsidian-manuscript-publisher\skills\obsidian-manuscript-setup\SKILL.md") | Should Be $true
-        foreach ($file in @("install-windows.ps1", "doctor.ps1", "uninstall.ps1", "dependencies.lock.json", "lib\Environment.psm1", "lib\Vault.psm1", "lib\LocalRest.psm1", "lib\PublicationLibrary.psm1")) {
+        foreach ($file in @("install-windows.ps1", "doctor.ps1", "uninstall.ps1", "dependencies.lock.json", "lib\Environment.psm1", "lib\Vault.psm1", "lib\LocalRest.psm1", "lib\PublicationLibrary.psm1", "lib\PythonRuntime.psm1")) {
             (Get-FileHash -LiteralPath (Join-Path $repoRoot ("bootstrap\" + $file)) -Algorithm SHA256).Hash | Should Be (Get-FileHash -LiteralPath (Join-Path $pluginBootstrap $file) -Algorithm SHA256).Hash
         }
     }
