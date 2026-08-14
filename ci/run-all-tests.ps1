@@ -3,7 +3,7 @@ param(
     [string]$PythonPath = (Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"),
     [string]$EvidencePath = (Join-Path (Get-Location) "artifacts\test-evidence.json"),
     [int]$ExpectedPesterSkipCount = 0,
-    [int]$ExpectedPythonSkipCount = 0
+    [int]$ExpectedPythonSkipCount = 4
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,7 +17,12 @@ $pythonExit = $LASTEXITCODE
 $pythonSummary = @($pythonOutput | Where-Object { $_ -match '^\s*\{' } | Select-Object -Last 1) | ConvertFrom-Json
 $records += [ordered]@{ runner = "python"; command = "ci/run-python-tests.ps1 -PythonPath <python312> -ExpectedSkipCount $ExpectedPythonSkipCount"; exitCode = $pythonExit; counts = $pythonSummary }
 
-$pesterPaths = @("tests\InstallerContract.Tests.ps1", "tests\PythonRuntimeContract.Tests.ps1", "tests\SecretScan.Tests.ps1") | ForEach-Object { Join-Path $repoRoot $_ }
+$pesterPaths = @(
+    "tests\InstallerContract.Tests.ps1",
+    "tests\PythonRuntimeContract.Tests.ps1",
+    "tests\SecretScan.Tests.ps1",
+    "tests\TestRunnerContract.Tests.ps1"
+) | ForEach-Object { Join-Path $repoRoot $_ }
 $pesterOutput = & (Join-Path $PSScriptRoot "run-pester-tests.ps1") -Path $pesterPaths -ExpectedSkipCount $ExpectedPesterSkipCount 2>&1
 $pesterExit = $LASTEXITCODE
 $pesterSummary = @($pesterOutput | Where-Object { $_ -match '^\s*\{' } | Select-Object -Last 1) | ConvertFrom-Json

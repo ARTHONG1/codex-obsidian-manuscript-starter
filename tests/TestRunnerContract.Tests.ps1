@@ -1,6 +1,7 @@
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $pythonRunner = Join-Path $repoRoot "ci\run-python-tests.ps1"
 $pesterRunner = Join-Path $repoRoot "ci\run-pester-tests.ps1"
+$aggregateRunner = Join-Path $repoRoot "ci\run-all-tests.ps1"
 
 function Invoke-ChildPowerShell {
     param(
@@ -36,6 +37,11 @@ function Resolve-Python312 {
 }
 
 Describe "Test runner contracts" {
+    It "includes this contract in the aggregate Pester suite" {
+        $aggregate = Get-Content -Raw -LiteralPath $aggregateRunner
+        $aggregate | Should Match "tests\\TestRunnerContract\.Tests\.ps1"
+    }
+
     It "reports a passing Python module as success with explicit counts" {
         $root = Join-Path $TestDrive "python-pass"
         New-Item -ItemType Directory -Path $root -Force | Out-Null
@@ -161,7 +167,7 @@ Describe "synthetic skip" {
         $result.Output | Should Match '"SkippedCount"\s*:\s*1'
     }
 
-    It "uses Pester result counts when the Pester process exits zero" {
+    It "uses Pester result counts when Invoke-Pester returns a successful host result object" {
         $path = Join-Path $TestDrive "pester-owned-result.Tests.ps1"
         @'
 Describe "synthetic owned result" {

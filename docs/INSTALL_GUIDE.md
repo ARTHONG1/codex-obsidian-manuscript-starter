@@ -28,4 +28,10 @@ Codex 또는 Obsidian이 재시작되면 아래 문장을 입력합니다.
 
 재시작 후 schema-v2 runtime을 다시 읽습니다. Local REST 설정 파일이 없거나 비어 있거나 아직 완성되지 않은 동안에는 준비 확인을 재시도하며, WinGet이 없으면 공식 설치 페이지에서 Obsidian과 Python을 설치한 뒤 이어가기 문장을 입력합니다.
 
-개발 검증은 저장소 루트에서 `python -m unittest discover -s tests -t tests`, `Invoke-Pester -Script .\tests\InstallerContract.Tests.ps1`, `Invoke-Pester -Script .\tests\SecretScan.Tests.ps1` 순서로 실행합니다.
+개발 검증은 저장소 루트에서 다음 집계 명령으로 실행합니다.
+
+```powershell
+.\ci\run-all-tests.ps1 -PythonPath $Python312 -ExpectedPythonSkipCount 4
+```
+
+현재 허용하는 Python 건너뜀은 정확히 네 건입니다. 실 wheelhouse가 제공되지 않은 `test_real_wheelhouse_recreates_committed_lock_when_provided`, 현재 권한에서 디렉터리 reparse point를 만들 수 없는 `test_existing_item_reparse_point_is_rejected_when_supported`, `test_rejects_reparse_point_without_following_it_when_supported`, `test_snapshot_rejects_reparse_staging_parent_when_supported`이며, 다른 수가 보고되면 검증은 실패해야 합니다.

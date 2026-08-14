@@ -14,4 +14,10 @@
 | Local REST 설정이 비어 있거나 부분적으로 저장됨 | Obsidian을 열어 둔 상태에서 준비 점검을 다시 요청합니다. 준비 확인은 일시적인 파일·JSON 상태를 재시도합니다. |
 | 제품 Python 환경 확인 | 전역 패키지를 수정하지 말고 제품 소유 venv에서 `requirements.lock.txt`의 해시 잠금 세트를 사용합니다. |
 
-검증 명령은 `python -m unittest discover -s tests -t tests`, `Invoke-Pester -Script .\tests\InstallerContract.Tests.ps1`, `Invoke-Pester -Script .\tests\SecretScan.Tests.ps1`입니다.
+검증 명령은 다음과 같습니다.
+
+```powershell
+.\ci\run-all-tests.ps1 -PythonPath $Python312 -ExpectedPythonSkipCount 4
+```
+
+현재 허용하는 Python 건너뜀은 정확히 네 건입니다. 실 wheelhouse가 제공되지 않은 `test_real_wheelhouse_recreates_committed_lock_when_provided`, 현재 권한에서 디렉터리 reparse point를 만들 수 없는 `test_existing_item_reparse_point_is_rejected_when_supported`, `test_rejects_reparse_point_without_following_it_when_supported`, `test_snapshot_rejects_reparse_staging_parent_when_supported`입니다. 다른 수가 보고되면 원인을 조사하고 검증을 통과시키기 위해 기대값을 올리지 않습니다.

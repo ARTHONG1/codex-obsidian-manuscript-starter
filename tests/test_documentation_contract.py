@@ -9,6 +9,10 @@ PLUGIN_MANIFEST = ROOT / "plugins/obsidian-manuscript-publisher/.codex-plugin/pl
 MARKETPLACE = ROOT / ".agents/plugins/marketplace.json"
 OPENAI_AGENT = ROOT / "plugins/obsidian-manuscript-publisher/skills/obsidian-manuscript-publisher/agents/openai.yaml"
 README = (ROOT / "README.md").read_text(encoding="utf-8")
+INSTALL_GUIDE = (ROOT / "docs/INSTALL_GUIDE.md").read_text(encoding="utf-8")
+RELEASE = (ROOT / "docs/RELEASE.md").read_text(encoding="utf-8")
+TROUBLESHOOTING = (ROOT / "docs/TROUBLESHOOTING.md").read_text(encoding="utf-8")
+ALL_TESTS_RUNNER = (ROOT / "ci/run-all-tests.ps1").read_text(encoding="utf-8")
 SKILL = (ROOT / "plugins/obsidian-manuscript-publisher/skills/obsidian-manuscript-publisher/SKILL.md").read_text(encoding="utf-8")
 BLOG_SCHEMA = (ROOT / "plugins/obsidian-manuscript-publisher/skills/obsidian-manuscript-publisher/references/blog-schema.md").read_text(encoding="utf-8")
 ASSET_POLICY = (ROOT / "plugins/obsidian-manuscript-publisher/skills/obsidian-manuscript-publisher/references/asset-policy.md").read_text(encoding="utf-8")
@@ -98,6 +102,21 @@ class DocumentationContractTests(unittest.TestCase):
         self.assertIn(".\\ci\\run-python-tests.ps1 -PythonPath $Python312", README)
         self.assertIn(".\\ci\\run-pester-tests.ps1", README)
         self.assertIn(".\\ci\\run-all-tests.ps1 -PythonPath $Python312", README)
+
+    def test_aggregate_runner_self_inclusion_and_skip_inventory_are_documented(self):
+        self.assertIn("tests\\TestRunnerContract.Tests.ps1", ALL_TESTS_RUNNER)
+        self.assertIn("-ExpectedPythonSkipCount 4", README)
+        self.assertIn("-ExpectedPythonSkipCount 4", INSTALL_GUIDE)
+        self.assertIn("-ExpectedPythonSkipCount 4", RELEASE)
+        self.assertIn("-ExpectedPythonSkipCount 4", TROUBLESHOOTING)
+        for test_name in (
+            "test_real_wheelhouse_recreates_committed_lock_when_provided",
+            "test_existing_item_reparse_point_is_rejected_when_supported",
+            "test_rejects_reparse_point_without_following_it_when_supported",
+            "test_snapshot_rejects_reparse_staging_parent_when_supported",
+        ):
+            self.assertIn(test_name, RELEASE)
+            self.assertIn(test_name, TROUBLESHOOTING)
 
     def test_docs_name_real_validators_and_not_nonexistent_ones(self):
         for document in (README, SKILL):

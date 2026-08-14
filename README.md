@@ -183,8 +183,10 @@ AI가 만든 이미지는 실제 화면이라고 속이지 않습니다. 실제 
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 .\ci\run-python-tests.ps1 -PythonPath $Python312
 .\ci\run-pester-tests.ps1 -Path .\tests\InstallerContract.Tests.ps1,.\tests\PythonRuntimeContract.Tests.ps1,.\tests\SecretScan.Tests.ps1 -ExpectedSkipCount 0
-.\ci\run-all-tests.ps1 -PythonPath $Python312
+.\ci\run-all-tests.ps1 -PythonPath $Python312 -ExpectedPythonSkipCount 4
 ```
+
+현재 Python 전체 검증에서 허용하는 건너뜀은 정확히 네 건입니다. 실 wheelhouse가 제공되지 않은 `test_real_wheelhouse_recreates_committed_lock_when_provided`, 현재 권한에서 디렉터리 reparse point를 만들 수 없는 `test_existing_item_reparse_point_is_rejected_when_supported`, `test_rejects_reparse_point_without_following_it_when_supported`, `test_snapshot_rejects_reparse_staging_parent_when_supported`입니다. 집계 러너는 이 수와 다르면 실패합니다.
 
 ## Master Editorial Quality V3
 
