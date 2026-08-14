@@ -8,13 +8,18 @@ function ConvertTo-CanonicalPath {
 function Test-NoReparsePointInPath {
     param([Parameter(Mandatory = $true)] [string]$Path)
     try {
-        $candidate = Get-Item -LiteralPath $Path -Force
-        if (($candidate.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-            return $false
-        }
-        $parent = Get-Item -LiteralPath (Split-Path -Parent $Path) -Force
-        if (($parent.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-            return $false
+        $currentPath = ConvertTo-CanonicalPath $Path
+        while (-not [string]::IsNullOrWhiteSpace($currentPath)) {
+            $current = Get-Item -LiteralPath $currentPath -Force
+            if (($current.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                return $false
+            }
+            $parentPath = Split-Path -Parent $currentPath
+            if ([string]::IsNullOrWhiteSpace($parentPath) -or
+                [string]::Equals($parentPath, $currentPath, [StringComparison]::OrdinalIgnoreCase)) {
+                break
+            }
+            $currentPath = $parentPath
         }
         return $true
     } catch {
@@ -230,4 +235,14 @@ function Install-Python312 {
     }
 }
 
-Export-ModuleMember -Function Find-Python312, Install-Python312
+function Get-PythonRuntimeDeferredStatus {
+    param([Parameter(Mandatory = $true)] [string]$PythonPath)
+    return [pscustomobject]@{
+        Status = "python_runtime_install_deferred"
+        Reason = "managed_venv_install_deferred"
+        Python = $PythonPath
+        Recovery = "Managed virtual-environment installation is deferred to Task 3/5. Rerun the installer after that task is available."
+    }
+}
+
+Export-ModuleMember -Function Find-Python312, Install-Python312, Get-PythonRuntimeDeferredStatus

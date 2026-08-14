@@ -122,6 +122,36 @@ Describe "Python 3.12 runtime contract" {
         $calls.Count | Should Be 1
     }
 
+    It "rejects a candidate beneath a reparse-point ancestor" {
+        $realRoot = Join-Path $TestDrive "real-root"
+        $reparseRoot = Join-Path $TestDrive "reparse-root"
+        $candidate = Join-Path $reparseRoot "nested\Python312\python.exe"
+        New-Item -ItemType Directory -Path (Join-Path $realRoot "nested\Python312") -Force | Out-Null
+        New-Item -ItemType File -Path (Join-Path $realRoot "nested\Python312\python.exe") -Force | Out-Null
+        try {
+            New-Item -ItemType Junction -Path $reparseRoot -Target $realRoot -ErrorAction Stop | Out-Null
+        } catch {
+            return
+        }
+
+        $probe = {
+            param([string]$Candidate)
+            [pscustomobject]@{
+                ExitCode = 0
+                Major = 3
+                Minor = 12
+                Executable = $Candidate
+            }
+        }.GetNewClosure()
+
+        $result = Find-Python312 -ExplicitPython $candidate -CommandResolver {
+            param([string]$Command, [string[]]$Arguments)
+            return $null
+        } -VersionProbe $probe -LocalAppDataRoot $null -ProgramFilesRoot $null
+
+        $result.Ready | Should Be $false
+    }
+
     It "returns python_install_manual_required without invoking the process runner when WinGet is absent" {
         $called = $false
         $runner = {
@@ -182,6 +212,40 @@ Describe "Python 3.12 runtime contract" {
         $result = Install-Python312 -WingetPath $winget -ProcessRunner $runner
 
         $result.Status | Should Be "python_installed"
+    }
+
+    It "rejects WinGet beneath a reparse-point ancestor" {
+        $realRoot = Join-Path $TestDrive "real-winget"
+        $reparseRoot = Join-Path $TestDrive "reparse-winget"
+        $winget = Join-Path $reparseRoot "bin\winget.exe"
+        New-Item -ItemType Directory -Path (Join-Path $realRoot "bin") -Force | Out-Null
+        New-Item -ItemType File -Path (Join-Path $realRoot "bin\winget.exe") -Force | Out-Null
+        try {
+            New-Item -ItemType Junction -Path $reparseRoot -Target $realRoot -ErrorAction Stop | Out-Null
+        } catch {
+            return
+        }
+
+        $called = $false
+        $runner = {
+            param([string]$Executable, [string[]]$Arguments)
+            $script:called = $true
+            return [pscustomobject]@{ ExitCode = 0 }
+        }.GetNewClosure()
+
+        $result = Install-Python312 -WingetPath $winget -ProcessRunner $runner
+
+        $result.Status | Should Be "python_install_manual_required"
+        $called | Should Be $false
+    }
+
+    It "returns a structured deferred status for managed runtime installation" {
+        $status = Get-PythonRuntimeDeferredStatus -PythonPath "C:\Python312\python.exe"
+
+        $status.Status | Should Be "python_runtime_install_deferred"
+        $status.Reason | Should Be "managed_venv_install_deferred"
+        $status.Python | Should Be "C:\Python312\python.exe"
+        $status.Recovery | Should Match "Task 3/5"
     }
 
     It "returns python_installed_restart_required when rediscovery remains empty" {

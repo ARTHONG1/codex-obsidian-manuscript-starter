@@ -162,6 +162,18 @@ Describe "Beginner installer safety contract" {
         }
     }
 
+    It "does not invoke pip against base Python and defers managed runtime installation" {
+        foreach ($bootstrapRoot in @(
+            (Join-Path $repoRoot "bootstrap"),
+            (Join-Path $repoRoot "plugins\obsidian-manuscript-publisher\bootstrap")
+        )) {
+            $installer = Get-Content -Raw -LiteralPath (Join-Path $bootstrapRoot "install-windows.ps1") -Encoding UTF8
+            $installer | Should Not Match '(?im)^\s*&\s*\$pythonState\.Python\s+-m\s+pip\b'
+            $installer | Should Match 'Get-PythonRuntimeDeferredStatus'
+            $installer | Should Match 'requirements\.lock\.txt'
+        }
+    }
+
     It "rediscoveries Python 3.12 after a successful WinGet install and exposes restart-required status" {
         foreach ($bootstrapRoot in @(
             (Join-Path $repoRoot "bootstrap"),

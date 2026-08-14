@@ -46,15 +46,8 @@ if (-not $pythonState.Ready) {
 }
 $runtimeState = Test-PythonRuntime -PythonPath $pythonState.Python
 if (-not $runtimeState.Ready) {
-    $requirements = @(
-        (Join-Path (Split-Path -Parent $bootstrapRoot) "requirements.lock.txt"),
-        (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $bootstrapRoot))) "requirements.lock.txt")
-    ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
-    if (-not $requirements) { throw "python_dependency_missing: requirements.lock.txt was not found in the packaged release." }
-    & $pythonState.Python -m pip install --require-hashes --only-binary=:all: --requirement $requirements --disable-pip-version-check
-    if ($LASTEXITCODE -ne 0) { throw "python_dependency_missing: package installation failed; rerun the same command after reviewing pip output." }
-    $runtimeState = Test-PythonRuntime -PythonPath $pythonState.Python
-    if (-not $runtimeState.Ready) { throw "python_dependency_missing: the exact Python runtime contract is still unavailable; rerun doctor and review the reported missing or mismatched packages." }
+    # requirements.lock.txt is consumed by the managed venv flow deferred to Task 3/5.
+    return Get-PythonRuntimeDeferredStatus -PythonPath $pythonState.Python
 }
 Set-InstallStage -RuntimeRoot $paths.RuntimeRoot -Stage "dependency_ready" | Out-Null
 
