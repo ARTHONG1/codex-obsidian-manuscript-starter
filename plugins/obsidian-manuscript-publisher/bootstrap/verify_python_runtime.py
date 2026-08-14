@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import importlib.metadata
 import json
+import re
 import sys
 from typing import Any
 
@@ -47,8 +48,8 @@ def import_runtime_modules() -> None:
         importlib.import_module(module)
 
 
-def _base_result() -> dict[str, Any]:
-    return {
+def _base_result(requirements_hash: str | None = None) -> dict[str, Any]:
+    result = {
         "ready": False,
         "reason": "unknown",
         "python": sys.executable,
@@ -58,10 +59,15 @@ def _base_result() -> dict[str, Any]:
         "missing": [],
         "mismatched": {},
     }
+    if requirements_hash is not None:
+        result["requirements_hash"] = requirements_hash
+    return result
 
 
-def probe_runtime() -> dict[str, Any]:
-    result = _base_result()
+def probe_runtime(requirements_hash: str | None = None) -> dict[str, Any]:
+    if requirements_hash is not None and not re.fullmatch(r"[0-9a-f]{64}", requirements_hash):
+        raise ValueError("requirements hash must be 64 lowercase hexadecimal characters")
+    result = _base_result(requirements_hash)
     major, minor = get_python_version()
     result["python_version"] = f"{major}.{minor}"
     if (major, minor) != (3, 12):
@@ -99,7 +105,12 @@ def probe_runtime() -> dict[str, Any]:
 
 
 def main() -> int:
-    print(json.dumps(probe_runtime(), ensure_ascii=False, sort_keys=True))
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--requirements-hash")
+    args = parser.parse_args()
+    print(json.dumps(probe_runtime(args.requirements_hash), ensure_ascii=False, sort_keys=True))
     return 0
 
 

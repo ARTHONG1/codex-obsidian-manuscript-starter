@@ -10,7 +10,7 @@ function Test-NoReparsePointInPath {
     try {
         $currentPath = ConvertTo-CanonicalPath $Path
         while (-not [string]::IsNullOrWhiteSpace($currentPath)) {
-            $current = Get-Item -LiteralPath $currentPath -Force
+            $current = Get-Item -LiteralPath $currentPath -Force -ErrorAction Stop
             if (($current.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
                 return $false
             }
@@ -175,6 +175,113 @@ function Invoke-DefaultProcessRunner {
     return [pscustomobject]@{ ExitCode = $LASTEXITCODE }
 }
 
+function Get-ManagedVenvPaths {
+    param([Parameter(Mandatory = $true)] [string]$RuntimeRoot)
+    $root = ConvertTo-CanonicalPath $RuntimeRoot
+    if ([string]::IsNullOrWhiteSpace($root) -or -not [IO.Path]::IsPathRooted($root) -or
+        -not (Test-Path -LiteralPath $root -PathType Container) -or
+        -not (Test-NoReparsePointInPath $root)) {
+        throw "Runtime root is unsafe."
+    }
+    $active = ConvertTo-CanonicalPath (Join-Path $root "venv")
+    $candidate = ConvertTo-CanonicalPath (Join-Path $root ("venv.candidate-" + [guid]::NewGuid().ToString("N")))
+    foreach ($path in @($active, $candidate)) {
+        if (-not $path.StartsWith($root.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) -and
+            -not [string]::Equals($path, $root, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Managed path escaped runtime root."
+        }
+        if ((Test-Path -LiteralPath $path) -and -not (Test-NoReparsePointInPath $path)) {
+            throw "Managed path is a reparse point."
+        }
+    }
+    return [pscustomobject]@{
+        ActiveRoot = $active
+        ActivePython = ConvertTo-CanonicalPath (Join-Path $active "Scripts\python.exe")
+        CandidateRoot = $candidate
+    }
+}
+
+function Get-RequirementsHash {
+    param([Parameter(Mandatory = $true)] [string]$Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Requirements lock not found." }
+    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Test-ManagedPythonRuntime {
+    param(
+        [Parameter(Mandatory = $true)] [string]$PythonPath,
+        [Parameter(Mandatory = $true)] [string]$RequirementsHash,
+        [Parameter(Mandatory = $true)] [string]$ProbePath,
+        [scriptblock]$ProcessRunner
+    )
+    if ($RequirementsHash -notmatch '^[0-9a-f]{64}$') { throw "Invalid requirements hash." }
+    if ($null -eq $ProcessRunner) { $ProcessRunner = ${function:Invoke-DefaultProcessRunner} }
+    try {
+        $result = & $ProcessRunner $PythonPath @($ProbePath, "--requirements-hash", $RequirementsHash)
+        $json = if ($result.Output) { [string]$result.Output } else { [string]($result | Select-Object -Last 1) }
+        $probe = $json | ConvertFrom-Json
+        $probe | Add-Member -NotePropertyName RequirementsHash -NotePropertyValue ([string]$probe.requirements_hash) -Force
+        return $probe
+    } catch {
+        return [pscustomobject]@{ Ready = $false; Reason = "probe_failed"; RequirementsHash = $null }
+    }
+}
+
+function Remove-OwnedDirectory {
+    param([string]$Path, [string]$Prefix)
+    if ($Path -and (Split-Path -Leaf $Path) -like "$Prefix*") {
+        if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Recurse -Force }
+    }
+}
+
+function New-VerifiedManagedVenv {
+    param(
+        [Parameter(Mandatory = $true)] [string]$BasePython,
+        [Parameter(Mandatory = $true)] [string]$RuntimeRoot,
+        [Parameter(Mandatory = $true)] [string]$RequirementsLockPath,
+        [Parameter(Mandatory = $true)] [scriptblock]$ProcessRunner,
+        [string]$ProbePath = (Join-Path (Split-Path $PSScriptRoot -Parent) "verify_python_runtime.py")
+    )
+    $paths = Get-ManagedVenvPaths -RuntimeRoot $RuntimeRoot
+    $hash = Get-RequirementsHash -Path $RequirementsLockPath
+    $active = $paths.ActiveRoot
+    $activePython = $paths.ActivePython
+    if (Test-Path -LiteralPath $activePython -PathType Leaf) {
+        $existing = Test-ManagedPythonRuntime -PythonPath $activePython -RequirementsHash $hash -ProbePath $ProbePath -ProcessRunner $ProcessRunner
+        if ($existing.Ready -and [string]$existing.RequirementsHash -eq $hash) {
+            return [pscustomobject]@{ Ready = $true; BasePython = $BasePython; Python = $activePython; VenvRoot = $active; RequirementsHash = $hash; Reused = $true; Backup = $null }
+        }
+    }
+    $candidate = $paths.CandidateRoot
+    $candidatePython = ConvertTo-CanonicalPath (Join-Path $candidate "Scripts\python.exe")
+    $backup = ConvertTo-CanonicalPath (Join-Path (Split-Path $active -Parent) ("venv.backup-" + [guid]::NewGuid().ToString("N")))
+    $wasPromoted = $false
+    try {
+        $r = & $ProcessRunner $BasePython @("-m", "venv", $candidate)
+        if ($null -eq $r -or [int]$r.ExitCode -ne 0) { throw "venv creation failed." }
+        $r = & $ProcessRunner $candidatePython @("-m", "pip", "install", "--disable-pip-version-check", "--require-hashes", "--only-binary=:all:", "-r", $RequirementsLockPath)
+        if ($null -eq $r -or [int]$r.ExitCode -ne 0) { throw "dependency installation failed." }
+        $candidateProbe = Test-ManagedPythonRuntime -PythonPath $candidatePython -RequirementsHash $hash -ProbePath $ProbePath -ProcessRunner $ProcessRunner
+        if (-not $candidateProbe.Ready -or [string]$candidateProbe.RequirementsHash -ne $hash) { throw "candidate verification failed." }
+        if (Test-Path -LiteralPath $active) {
+            Move-Item -LiteralPath $active -Destination $backup
+        }
+        Move-Item -LiteralPath $candidate -Destination $active
+        $wasPromoted = $true
+        $promoted = Test-ManagedPythonRuntime -PythonPath $activePython -RequirementsHash $hash -ProbePath $ProbePath -ProcessRunner $ProcessRunner
+        if (-not $promoted.Ready -or [string]$promoted.RequirementsHash -ne $hash) { throw "post-promotion verification failed." }
+        if (Test-Path -LiteralPath $backup) { Remove-OwnedDirectory $backup "venv.backup-" }
+        return [pscustomobject]@{ Ready = $true; BasePython = $BasePython; Python = $activePython; VenvRoot = $active; RequirementsHash = $hash; Reused = $false; Backup = $backup }
+    } catch {
+        if ($wasPromoted -and (Test-Path -LiteralPath $active)) {
+            Remove-OwnedDirectory $active "venv"
+        }
+        if (Test-Path -LiteralPath $backup) { Move-Item -LiteralPath $backup -Destination $active }
+        Remove-OwnedDirectory $candidate "venv.candidate-"
+        throw
+    }
+}
+
 function Install-Python312 {
     param(
         [string]$WingetPath,
@@ -245,4 +352,4 @@ function Get-PythonRuntimeDeferredStatus {
     }
 }
 
-Export-ModuleMember -Function Find-Python312, Install-Python312, Get-PythonRuntimeDeferredStatus
+Export-ModuleMember -Function Find-Python312, Install-Python312, Get-PythonRuntimeDeferredStatus, Get-ManagedVenvPaths, New-VerifiedManagedVenv, Test-ManagedPythonRuntime

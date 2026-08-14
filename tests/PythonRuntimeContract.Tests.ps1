@@ -289,4 +289,64 @@ Describe "Python 3.12 runtime contract" {
         $env:PATH | Should Be $beforePath
         (Get-Command Set-ItemProperty -ErrorAction SilentlyContinue).Name | Should Be "Set-ItemProperty"
     }
+
+    It "returns canonical active and unique candidate managed venv paths" {
+        $root = Join-Path $TestDrive "runtime"
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        $paths = Get-ManagedVenvPaths -RuntimeRoot $root
+
+        $paths.ActiveRoot | Should Be ([IO.Path]::GetFullPath((Join-Path $root "venv")))
+        $paths.ActivePython | Should Be ([IO.Path]::GetFullPath((Join-Path $root "venv\Scripts\python.exe")))
+        $paths.CandidateRoot | Should Match ([regex]::Escape(([IO.Path]::GetFullPath($root))))
+        $paths.CandidateRoot | Should Match "venv\.candidate-[0-9a-f]{32}$"
+    }
+
+    It "installs requirements only with the candidate venv Python and hash enforcement" {
+        $root = Join-Path $TestDrive "runtime"
+        $lock = Join-Path $TestDrive "requirements.lock.txt"
+        $probePath = Join-Path $TestDrive "verify_python_runtime.py"
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        Set-Content -Path $lock -Value "package==1.0 --hash=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        New-Item -ItemType File -Path $probePath -Force | Out-Null
+        $expectedHash = (Get-FileHash -LiteralPath $lock -Algorithm SHA256).Hash.ToLowerInvariant()
+        $calls = New-Object System.Collections.ArrayList
+        $runner = {
+            param([string]$Executable, [string[]]$Arguments)
+            [void]$calls.Add([pscustomobject]@{ Executable = $Executable; Arguments = $Arguments })
+            if ($Arguments -contains "-m" -and $Arguments -contains "venv") {
+                $candidate = $Arguments[$Arguments.Count - 1]
+                New-Item -ItemType Directory -Path (Join-Path $candidate "Scripts") -Force | Out-Null
+                New-Item -ItemType File -Path (Join-Path $candidate "Scripts\python.exe") -Force | Out-Null
+            }
+            return [pscustomobject]@{ ExitCode = 0; Output = ('{"ready":true,"requirements_hash":"' + $expectedHash + '"}') }
+        }.GetNewClosure()
+
+        $result = New-VerifiedManagedVenv -BasePython "C:\base\python.exe" -RuntimeRoot $root `
+            -RequirementsLockPath $lock -ProbePath $probePath -ProcessRunner $runner
+
+        $pip = $calls | Where-Object { $_.Arguments -contains "pip" }
+        $pip.Executable | Should BeLike "*venv.candidate-*python.exe"
+        ($pip.Arguments -join " ") | Should Match "--require-hashes"
+        ($pip.Arguments -join " ") | Should Match "--only-binary=:all:"
+        $pip.Executable | Should Not Be "C:\base\python.exe"
+    }
+
+    It "rejects a runtime root beneath a reparse point" {
+        $real = Join-Path $TestDrive "real"
+        $reparse = Join-Path $TestDrive "reparse"
+        New-Item -ItemType Directory -Path $real -Force | Out-Null
+        try {
+            New-Item -ItemType Junction -Path $reparse -Target $real -ErrorAction Stop | Out-Null
+        } catch {
+            return
+        }
+        New-Item -ItemType Directory -Path (Join-Path $real "runtime") -Force | Out-Null
+        $threw = $false
+        try {
+            [void](Get-ManagedVenvPaths -RuntimeRoot (Join-Path $reparse "runtime"))
+        } catch {
+            $threw = $true
+        }
+        $threw | Should Be $true
+    }
 }
