@@ -809,6 +809,88 @@ Describe "Beginner installer safety contract" {
         $source | Should Not Match '(?im)^\s*insecure\s*$|--insecure'
     }
 
+    It "resolves curl.exe to an absolute path and rejects an unavailable resolver" {
+        Import-Module $restModule -Force
+        $absolute = Join-Path $TestDrive "curl.exe"
+        Set-Content -LiteralPath $absolute -Value "test" -Encoding ASCII -NoNewline
+
+        (Get-CurlExecutable -CommandResolver { $absolute }) | Should Be ([IO.Path]::GetFullPath($absolute))
+        { Get-CurlExecutable -CommandResolver { $null } } | Should Throw "curl_unavailable"
+    }
+
+    It "polls transient Local REST configuration until a complete listening state" {
+        Import-Module $restModule -Force
+        $dataPath = Join-Path $TestDrive "polling-data.json"
+        $states = @(
+            $null,
+            "",
+            "{",
+            '{"port":27124}',
+            '{"port":27124,"crypto":{"cert":"cert"}}',
+            '{"port":27124,"crypto":{"cert":"cert"}}'
+        )
+        $script:stateIndex = 0
+        $script:curlCalls = 0
+        $readConfig = {
+            if ($script:stateIndex -lt $states.Count) {
+                $state = $states[$script:stateIndex]
+                $script:stateIndex++
+                if ($null -eq $state) {
+                    Remove-Item -LiteralPath $dataPath -Force -ErrorAction SilentlyContinue
+                } else {
+                    Set-Content -LiteralPath $dataPath -Value $state -Encoding UTF8 -NoNewline
+                }
+            }
+            return $true
+        }
+        $curl = {
+            param($Executable, $Arguments)
+            $script:curlCalls++
+            if ($script:stateIndex -lt 6) { throw "not listening yet" }
+            return 0
+        }
+
+        $result = Wait-ForLocalRest -DataPath $dataPath -TimeoutSeconds 3 `
+            -CommandResolver { (Join-Path $TestDrive "curl.exe") } `
+            -ReadinessReader $readConfig -CurlInvoker $curl
+
+        $result.Port | Should Be 27124
+        $script:curlCalls | Should BeGreaterThan 0
+        $script:stateIndex | Should Be 6
+    }
+
+    It "fails closed at the Local REST readiness deadline without secrets" {
+        Import-Module $restModule -Force
+        $dataPath = Join-Path $TestDrive "timeout-data.json"
+        Set-Content -LiteralPath $dataPath -Value '{"apiKey":"secret","port":27124,"crypto":{"cert":"private-looking"}}' -Encoding UTF8
+        try {
+            Wait-ForLocalRest -DataPath $dataPath -TimeoutSeconds 1 `
+                -CommandResolver { throw "curl.exe missing secret=secret" } `
+                -ReadinessReader { $true } -CurlInvoker { param($Executable, $Arguments) throw "connection refused" }
+            throw "expected timeout"
+        } catch {
+            $_.Exception.Message | Should Match '^local_rest_not_ready:'
+            $_.Exception.Message | Should Not Match 'secret|private-looking|curl.exe missing'
+            $_.Exception.Message | Should Match 'Keep Obsidian open, verify the Local REST plugin is enabled, and rerun doctor'
+        }
+    }
+
+    It "rejects invalid ports and missing certificates before curl" {
+        Import-Module $restModule -Force
+        foreach ($payload in @(
+            '{"port":0,"crypto":{"cert":"cert"}}',
+            '{"port":65536,"crypto":{"cert":"cert"}}',
+            '{"port":27124}',
+            '{"port":27124,"crypto":{"cert":""}}'
+        )) {
+            $dataPath = Join-Path $TestDrive ("invalid-" + [guid]::NewGuid().ToString("N") + ".json")
+            Set-Content -LiteralPath $dataPath -Value $payload -Encoding UTF8
+            { Wait-ForLocalRest -DataPath $dataPath -TimeoutSeconds 1 `
+                -CommandResolver { Join-Path $TestDrive "curl.exe" } `
+                -ReadinessReader { $true } -CurlInvoker { throw "must not run" } } | Should Throw "local_rest_not_ready"
+        }
+    }
+
     It "agrees with production on the terminal health status vocabulary" {
         # The harness stubs the network boundary, so without this the suite could assert a status
         # string that production is incapable of returning.

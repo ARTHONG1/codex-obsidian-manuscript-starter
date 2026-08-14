@@ -116,6 +116,40 @@ class LocalRestSecurityTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "certificate"):
                 rest._connection(config)
 
+    def test_connection_rejects_missing_port_instead_of_defaulting(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = Path(temporary) / "data.json"
+            config.write_text(
+                json.dumps({"apiKey": "test-only", "crypto": {"cert": TEST_CERTIFICATE}}),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "local_rest_port_missing"):
+                rest._connection(config)
+
+    def test_connection_rejects_invalid_port(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = Path(temporary) / "data.json"
+            config.write_text(
+                json.dumps(
+                    {"apiKey": "test-only", "port": 0, "crypto": {"cert": TEST_CERTIFICATE}}
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "local_rest_port_invalid"):
+                rest._connection(config)
+
+    def test_explicit_safe_base_url_still_requires_loopback_https(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = Path(temporary) / "data.json"
+            config.write_text(
+                json.dumps(
+                    {"apiKey": "test-only", "port": 27124, "crypto": {"cert": TEST_CERTIFICATE}}
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "local_rest_origin_must_be_loopback_https"):
+                rest._connection(config, "https://localhost:27124")
+
     def test_connection_pins_only_the_local_certificate_without_mocking_ssl(self):
         """Run the real pinning path: no mock of ssl.create_default_context.
 
