@@ -78,8 +78,13 @@ def _is_reparse_point(path: Path) -> bool:
         return False
     if stat.S_ISLNK(mode):
         return True
-    is_junction = getattr(os.path, "path", None)
-    return bool(is_junction and getattr(is_junction, "isjunction", lambda _: False)(path))
+    is_junction = getattr(Path, "is_junction", None)
+    if is_junction is not None:
+        try:
+            return bool(is_junction(path))
+        except OSError:
+            return True
+    return False
 
 
 def _source_error(code: str) -> TemplateSourceError:
@@ -162,7 +167,7 @@ def inspect_source_set(paths: list[str | Path]) -> dict[str, object]:
         return {"code": "template_source_count_exceeded", "source_count": len(paths), "sources": []}
     ordered = sorted((Path(path) for path in paths), key=lambda item: item.name.casefold())
     names = [path.name for path in ordered]
-    if len(set(names)) != len(names):
+    if len({name.casefold() for name in names}) != len(names):
         return {"code": "duplicate_source_name", "sources": []}
     results = [inspect_source(path) for path in ordered]
     first_failure = next((result for result in results if result.code != "source_ready"), None)

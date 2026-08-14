@@ -64,7 +64,15 @@ def _markdown(plan: LayoutPlan) -> str:
 
 
 def _html(plan: LayoutPlan) -> str:
-    parts = ["<!doctype html><html lang='ko'><meta charset='utf-8'><main>", f"<h1>{html.escape(plan.title)}</h1>"]
+    page = dict(plan.page_tokens)
+    margin = float(page.get("margin", 56))
+    width = float(page.get("width", 794))
+    height = float(page.get("height", 1123))
+    parts = [
+        "<!doctype html><html lang='ko'><meta charset='utf-8'>",
+        f"<style>@page{{size:{width}px {height}px;margin:{margin}px;}}main{{max-width:{max(1, width - 2 * margin)}px;margin:0 auto;}}.page-break{{break-before:page;page-break-before:always;}}blockquote{{border:1px solid #777;padding:8px;}}</style>",
+        "<main>", f"<h1>{html.escape(plan.title)}</h1>",
+    ]
     for block in plan.blocks:
         block_id = html.escape(block["id"], quote=True)
         text = html.escape(_text(block))
@@ -91,6 +99,11 @@ def _register_font() -> str:
 
 def _pdf(plan: LayoutPlan, path: Path) -> None:
     font = _register_font()
+    page = dict(plan.page_tokens)
+    width = float(page.get("width", 794))
+    height = float(page.get("height", 1123))
+    margin = float(page.get("margin", 56))
+    points = lambda px: px * 72 / 96
     styles = {
         "body": ParagraphStyle("custom-body", fontName=font, fontSize=10, leading=16, alignment=TA_LEFT, spaceAfter=6),
         "heading": ParagraphStyle("custom-heading", fontName=font, fontSize=15, leading=22, alignment=TA_LEFT, spaceBefore=8, spaceAfter=8),
@@ -110,7 +123,11 @@ def _pdf(plan: LayoutPlan, path: Path) -> None:
             story.extend([table, Spacer(1, 4)])
         else:
             story.append(Paragraph(text, styles["body"]))
-    SimpleDocTemplate(str(path), pagesize=A4, rightMargin=18 * mm, leftMargin=18 * mm, topMargin=18 * mm, bottomMargin=18 * mm).build(story)
+    SimpleDocTemplate(
+        str(path), pagesize=(points(width), points(height)),
+        rightMargin=points(margin), leftMargin=points(margin),
+        topMargin=points(margin), bottomMargin=points(margin),
+    ).build(story)
     if not path.is_file() or path.stat().st_size == 0:
         raise ValueError("custom_pdf_empty")
 
