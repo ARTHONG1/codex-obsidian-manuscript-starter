@@ -62,8 +62,9 @@ $patterns = @(
     ".agents/plugins/marketplace.json", ".github/workflows/windows-ci.yml", "bootstrap/**",
     "ci/action-lock.json", "ci/run-*.ps1", "ci/release-allowlist.txt", "dependencies.lock.json",
     "INSTALL_PROMPT.md", "LICENSE", "README.md", "requirements.lock.txt", "SECURITY.md",
-    "THIRD_PARTY_NOTICES.md", "CITATION.cff", "docs/INSTALL_GUIDE.md", "docs/TROUBLESHOOTING.md",
-    "docs/RELEASE.md", "plugins/obsidian-manuscript-publisher/**"
+    "THIRD_PARTY_NOTICES.md", "CITATION.cff", "docs/INSTALL_GUIDE.md", "docs/USAGE_GUIDE.md",
+    "docs/TROUBLESHOOTING.md", "docs/RELEASE.md", "docs/RELEASE_NOTES_v0.5.2.md",
+    "plugins/obsidian-manuscript-publisher/**"
 )
 $zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $Archive).Path)
 $members = @()
@@ -91,7 +92,8 @@ if (($sortedMembers -join "`n") -ne ($members -join "`n")) { Fail "members are n
 $required = @(
     "ci/release-allowlist.txt", "dependencies.lock.json", "requirements.lock.txt",
     "INSTALL_PROMPT.md", "LICENSE", "README.md", "SECURITY.md", "THIRD_PARTY_NOTICES.md",
-    "CITATION.cff", "docs/INSTALL_GUIDE.md", "docs/TROUBLESHOOTING.md", "docs/RELEASE.md",
+    "CITATION.cff", "docs/INSTALL_GUIDE.md", "docs/USAGE_GUIDE.md", "docs/TROUBLESHOOTING.md",
+    "docs/RELEASE.md", "docs/RELEASE_NOTES_v0.5.2.md",
     "plugins/obsidian-manuscript-publisher/.codex-plugin/plugin.json"
 )
 foreach ($requiredFile in $required) {

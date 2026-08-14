@@ -13,6 +13,8 @@ SECURITY.md
 THIRD_PARTY_NOTICES.md
 CITATION.cff
 docs/INSTALL_GUIDE.md
+docs/USAGE_GUIDE.md
 docs/TROUBLESHOOTING.md
 docs/RELEASE.md
+docs/RELEASE_NOTES_v0.5.2.md
 plugins/obsidian-manuscript-publisher/**

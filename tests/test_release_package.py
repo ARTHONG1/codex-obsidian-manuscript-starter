@@ -54,6 +54,8 @@ class ReleasePackageTests(unittest.TestCase):
                 self.assertEqual(names, [name.replace("\\", "/") for name in names])
                 self.assertEqual(len(names), len({name.casefold() for name in names}))
                 self.assertIn("plugins/obsidian-manuscript-publisher/.codex-plugin/plugin.json", names)
+                self.assertIn("docs/USAGE_GUIDE.md", names)
+                self.assertIn("docs/RELEASE_NOTES_v0.5.2.md", names)
                 self.assertNotIn("tests/test_release_package.py", names)
                 contents = {name: package.read(name) for name in names}
                 self.assertEqual(contents["dependencies.lock.json"], contents["bootstrap/dependencies.lock.json"])
