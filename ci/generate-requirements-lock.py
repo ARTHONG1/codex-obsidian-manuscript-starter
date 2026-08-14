@@ -15,6 +15,12 @@ from pathlib import Path
 _PINNED_REQUIREMENT = re.compile(
     r"^\s*([A-Za-z0-9][A-Za-z0-9_.-]*)\s*==\s*([^\s;#]+)"
 )
+_ALLOWED_WHEEL_TAGS = {
+    ("cp312", "cp312", "win_amd64"),
+    ("cp311", "abi3", "win_amd64"),
+    ("py3", "none", "any"),
+    ("py3", "none", "win_amd64"),
+}
 
 
 def canonicalize_name(name: str) -> str:
@@ -45,9 +51,25 @@ def parse_direct_requirements(path: Path) -> dict[str, str]:
     return requirements
 
 
-def wheel_identity(path: Path) -> tuple[str, str]:
+def parse_wheel_tags(path: Path) -> tuple[str, str, str]:
     if path.suffix.lower() != ".whl":
         raise ValueError(f"non-wheel file in wheel directory: {path.name}")
+    parts = path.stem.split("-")
+    if len(parts) == 5:
+        _, _, python_tag, abi_tag, platform_tag = parts
+    elif len(parts) == 6:
+        _, _, _, python_tag, abi_tag, platform_tag = parts
+    else:
+        raise ValueError(f"invalid wheel filename: {path.name}")
+    tag = (python_tag, abi_tag, platform_tag)
+    if tag not in _ALLOWED_WHEEL_TAGS:
+        rendered = "-".join(tag)
+        raise ValueError(f"unsupported wheel tag: {rendered}")
+    return tag
+
+
+def wheel_identity(path: Path) -> tuple[str, str]:
+    parse_wheel_tags(path)
     try:
         with zipfile.ZipFile(path) as archive:
             metadata_name = next(
