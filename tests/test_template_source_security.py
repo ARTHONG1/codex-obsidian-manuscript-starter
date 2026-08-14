@@ -43,6 +43,42 @@ class TemplateSourceSecurityTests(unittest.TestCase):
             self.assertEqual(result.code, "invalid_source_signature")
             self.assertNotIn(str(path), result.to_dict())
 
+    def test_rejects_a_source_set_above_file_count_before_parsing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = []
+            for index in range(template_source.MAX_SOURCE_FILES + 1):
+                path = root / f"{index}.png"
+                path.write_bytes(b"not-an-image")
+                paths.append(path)
+            result = template_source.inspect_source_set(paths)
+            self.assertEqual(result["code"], "template_source_count_exceeded")
+            self.assertNotIn(str(root), result)
+
+    def test_source_set_manifest_is_deterministic_and_uses_aggregate_limit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = root / "b.png"
+            second = root / "a.png"
+            first.write_bytes(b"\x89PNG\r\n\x1a\n" + b"b")
+            second.write_bytes(b"\x89PNG\r\n\x1a\n" + b"a")
+            result = template_source.inspect_source_set([first, second])
+            self.assertEqual(result["code"], "source_set_ready")
+            self.assertEqual([item["file_name"] for item in result["sources"]], ["a.png", "b.png"])
+
+    def test_rejects_reparse_point_without_following_it_when_supported(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target.png"
+            target.write_bytes(b"\x89PNG\r\n\x1a\n")
+            link = root / "link.png"
+            try:
+                link.symlink_to(target)
+            except (OSError, NotImplementedError) as exc:
+                self.skipTest(f"symlink unavailable: {exc}")
+            result = template_source.inspect_source(link)
+            self.assertEqual(result.code, "unsafe_source_path")
+
 
 if __name__ == "__main__":
     unittest.main()

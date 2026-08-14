@@ -5,6 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from PIL import Image
+
 
 ROOT = Path(__file__).parents[1]
 SCRIPTS = ROOT / "plugins/obsidian-manuscript-publisher/skills/obsidian-manuscript-publisher/scripts"
@@ -33,7 +35,7 @@ class CandidateTests(unittest.TestCase):
     def test_builds_neutral_candidate_with_source_hashes_only(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "example.png"
-            source.write_bytes(b"\x89PNG\r\n\x1a\nsource bytes")
+            Image.new("RGB", (16, 10), "white").save(source)
             evidence = {"source_refs": [{"file_id": "source-1", "page": 1}], "sections": []}
             result = template_candidate.build_candidate("출판사 A", [source], evidence, Path(directory) / "candidate")
             self.assertTrue(result["candidate_id"].startswith("c-"))

@@ -9,6 +9,8 @@ from pathlib import Path
 
 
 MAX_SOURCE_BYTES = 50 * 1024 * 1024
+MAX_SOURCE_FILES = 8
+MAX_TOTAL_SOURCE_BYTES = 100 * 1024 * 1024
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".png", ".jpg", ".jpeg", ".webp"}
 MIME_TYPES = {
     ".pdf": "application/pdf",
@@ -60,6 +62,8 @@ def inspect_source(path: str | Path) -> InspectionResult:
     safe_name = source.name
     if suffix not in SUPPORTED_EXTENSIONS:
         return InspectionResult("unsupported_template_source", safe_name)
+    if source.is_symlink():
+        return InspectionResult("unsafe_source_path", safe_name)
     if not source.is_file():
         return InspectionResult("template_source_missing", safe_name)
     size = source.stat().st_size
@@ -75,3 +79,25 @@ def inspect_source(path: str | Path) -> InspectionResult:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return InspectionResult("source_ready", safe_name, media_type, size, digest.hexdigest())
+
+
+def inspect_source_set(paths: list[str | Path]) -> dict[str, object]:
+    """Inspect a bounded, deterministic source set before any document parser runs."""
+    if not isinstance(paths, list) or not paths:
+        return {"code": "template_source_missing", "sources": []}
+    if len(paths) > MAX_SOURCE_FILES:
+        return {"code": "template_source_count_exceeded", "source_count": len(paths), "sources": []}
+    ordered = sorted((Path(path) for path in paths), key=lambda item: item.name.casefold())
+    results = [inspect_source(path) for path in ordered]
+    first_failure = next((result for result in results if result.code != "source_ready"), None)
+    if first_failure is not None:
+        return {"code": first_failure.code, "sources": [first_failure.to_dict()]}
+    total = sum(int(result.size_bytes or 0) for result in results)
+    if total > MAX_TOTAL_SOURCE_BYTES:
+        return {"code": "template_source_set_too_large", "total_size_bytes": total, "sources": []}
+    return {
+        "code": "source_set_ready",
+        "source_count": len(results),
+        "total_size_bytes": total,
+        "sources": [result.to_dict() for result in results],
+    }
