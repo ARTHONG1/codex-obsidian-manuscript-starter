@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import sys
 import tempfile
 import unittest
@@ -78,6 +79,79 @@ class TemplateSourceSecurityTests(unittest.TestCase):
                 self.skipTest(f"symlink unavailable: {exc}")
             result = template_source.inspect_source(link)
             self.assertEqual(result.code, "unsafe_source_path")
+
+    def test_snapshot_source_is_immutable_and_manifest_is_path_free(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "example.png"
+            original = b"\x89PNG\r\n\x1a\noriginal"
+            source.write_bytes(original)
+            with template_source.snapshot_source_set([source], staging_parent=root) as snapshots:
+                snapshot = snapshots[0]
+                self.assertEqual(snapshot.safe_name, "example.png")
+                self.assertEqual(snapshot.size_bytes, len(original))
+                self.assertEqual(snapshot.sha256, hashlib.sha256(original).hexdigest())
+                self.assertNotIn(str(snapshot.path), snapshot.to_manifest())
+                self.assertTrue(snapshot.path.parent.name.startswith("codex-template-snapshot-"))
+                source.write_bytes(b"\x89PNG\r\n\x1a\nmutated")
+                self.assertEqual(snapshot.path.read_bytes(), original)
+
+    def test_snapshot_detects_source_mutation_after_inspection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "example.png"
+            source.write_bytes(b"\x89PNG\r\n\x1a\noriginal")
+            original_inspect = template_source.inspect_source
+
+            def inspect_then_mutate(path):
+                result = original_inspect(path)
+                Path(path).write_bytes(b"\x89PNG\r\n\x1a\nchanged")
+                return result
+
+            template_source.inspect_source = inspect_then_mutate
+            try:
+                with self.assertRaisesRegex(
+                    template_source.TemplateSourceError,
+                    "source_changed_during_snapshot",
+                ):
+                    with template_source.snapshot_source_set([source]):
+                        pass
+            finally:
+                template_source.inspect_source = original_inspect
+
+    def test_snapshot_cleanup_removes_only_owned_directory_on_success_and_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "example.png"
+            source.write_bytes(b"\x89PNG\r\n\x1a\ncontent")
+            neighbor = root / "neighbor.txt"
+            neighbor.write_text("keep", encoding="utf-8")
+            captured = []
+            with template_source.snapshot_source_set([source], staging_parent=root) as snapshots:
+                captured.append(snapshots[0].path.parent)
+            self.assertFalse(captured[0].exists())
+            self.assertEqual(neighbor.read_text(encoding="utf-8"), "keep")
+            with self.assertRaisesRegex(RuntimeError, "extractor failed"):
+                with template_source.snapshot_source_set([source], staging_parent=root) as snapshots:
+                    captured.append(snapshots[0].path.parent)
+                    raise RuntimeError("extractor failed")
+            self.assertFalse(captured[-1].exists())
+            self.assertEqual(neighbor.read_text(encoding="utf-8"), "keep")
+
+    def test_snapshot_rejects_reparse_staging_parent_when_supported(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target"
+            target.mkdir()
+            source = root / "example.png"
+            source.write_bytes(b"\x89PNG\r\n\x1a\ncontent")
+            link = root / "staging-link"
+            try:
+                link.symlink_to(target, target_is_directory=True)
+            except (OSError, NotImplementedError) as exc:
+                self.skipTest(f"symlink unavailable: {exc}")
+            with self.assertRaisesRegex(template_source.TemplateSourceError, "unsafe_staging_parent"):
+                with template_source.snapshot_source_set([source], staging_parent=link):
+                    pass
 
 
 if __name__ == "__main__":
