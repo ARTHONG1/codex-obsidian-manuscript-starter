@@ -338,6 +338,7 @@ Describe "Python 3.12 runtime contract" {
         $realScripts = Join-Path $TestDrive "real-scripts"
         New-Item -ItemType Directory -Path $root -Force | Out-Null
         New-Item -ItemType Directory -Path $realScripts -Force | Out-Null
+        New-Item -ItemType File -Path (Join-Path $realScripts "python.exe") -Force | Out-Null
         Set-Content -Path $lock -Value "new"
         New-Item -ItemType File -Path $probePath -Force | Out-Null
         $candidatePython = $null
@@ -358,8 +359,9 @@ Describe "Python 3.12 runtime contract" {
             [void](New-VerifiedManagedVenv -BasePython (Join-Path $TestDrive "base-python.exe") -RuntimeRoot $root `
                 -RequirementsLockPath $lock -ProbePath $probePath -ProcessRunner $runner)
         } catch {}
-        ($runnerCalls | Where-Object { $_.Arguments -contains "venv" }).Count | Should Be 1
-        ($runnerCalls | Where-Object { $_.Arguments -contains "pip" }).Count | Should Be 0
+        $runnerCalls.Count | Should Be 1
+        ($runnerCalls[0].Arguments -join "|") | Should Match "(^|\|)venv(\||$)"
+        ($runnerCalls[0].Arguments -join "|") | Should Not Match "(^|\|)pip(\||$)"
     }
 
     It "rejects a runtime root beneath a reparse point" {
