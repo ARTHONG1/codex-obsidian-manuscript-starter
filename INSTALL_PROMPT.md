@@ -11,7 +11,7 @@
 2. 필요한 Codex marketplace/plugin 설치 명령을 실행해줘. 명령 실행 전 무엇을 설치하는지와 동의를 구하는 이유를 설명해줘.
 3. Obsidian이 없으면 WinGet이 있을 때만 공식 Obsidian 패키지를 설치해줘. WinGet이 없으면 https://obsidian.md/download 공식 페이지를 안내하고 멈춰줘.
 4. Python이 없으면 WinGet이 있을 때만 공식 Python 3.12 패키지를 설치해줘. WinGet이 없으면 https://www.python.org/downloads/windows/ 공식 페이지를 안내하고 멈춰줘.
-5. Pillow==11.3.0과 reportlab==4.4.3을 확인하고, 누락된 경우 저장소의 고정 requirements.txt를 사용해 설치해줘.
+5. Python 3.12와 Pillow==12.3.0, reportlab==4.4.3, python-docx==1.2.0, pdfplumber==0.11.9, pypdfium2==5.12.1, pypdf==5.9.0을 확인하고, 누락·불일치 시 저장소의 고정 requirements.txt로 복구해줘.
 6. 기존 Obsidian 보관함이나 기존 Local REST 설정을 수정하거나 삭제하지 마. 전용 새 빈 보관함을 사용해줘.
 7. Local REST API는 127.0.0.1 HTTPS 전용으로 설치해줘. API 키, 인증서, runtime 설정의 비밀값은 절대 화면에 출력하지 마.
 8. 설치 단계와 현재 상태를 알려줘. Codex 또는 Obsidian 재시작이 필요하면 그 지점에서 멈추고, 재시작 후 내가 입력할 정확한 한 문장을 보여줘.

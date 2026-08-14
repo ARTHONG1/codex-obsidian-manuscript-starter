@@ -12,7 +12,7 @@ original license terms remain applicable to those components.
 
 ## Pillow
 
-- Version: 11.3.0 (see `requirements.txt`)
+- Version: 12.3.0 (see `requirements.txt`)
 - License: MIT-CMU License
 - Source: https://github.com/python-pillow/Pillow
 
