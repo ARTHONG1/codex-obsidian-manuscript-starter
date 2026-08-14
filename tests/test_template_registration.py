@@ -9,6 +9,7 @@ ROOT = Path(__file__).parents[1]
 SCRIPTS = ROOT / "plugins/obsidian-manuscript-publisher/skills/obsidian-manuscript-publisher/scripts"
 import sys
 sys.path.insert(0, str(SCRIPTS))
+from template_candidate_state import activate_candidate, approve_candidate
 spec = importlib.util.spec_from_file_location("register_custom_template", SCRIPTS / "register_custom_template.py")
 registration = importlib.util.module_from_spec(spec)
 sys.modules["register_custom_template"] = registration
@@ -60,7 +61,10 @@ class RegistrationTests(unittest.TestCase):
             candidate = self.candidate(root)
             fake = FakeRest()
             with patch.dict("os.environ", {"CODEX_OBSIDIAN_STATE_ROOT": str(root / "state")}):
-                result = registration.register_candidate({}, candidate, {"candidate_id": "c-one", "approved_candidate_id": "c-one", "status": "preview_ready"}, transport=fake)
+                activate_candidate("conversation-1", "c-one", "v-one", root / "state")
+                approve_candidate("conversation-1", "c-one", "v-one", root / "state")
+                approval = {"candidate_id": "c-one", "approved_candidate_id": "c-one", "conversation_key": "conversation-1", "validation_hash": "v-one", "status": "preview_ready"}
+                result = registration.register_candidate({}, candidate, approval, transport=fake)
             self.assertEqual(result["version"], "t0.1")
             self.assertTrue(all(path.startswith("_system/manuscript-template-registry/c-one/t0.1/") for path in fake.writes))
             self.assertIn("_system/manuscript-template-registry/c-one/t0.1/registry.json", fake.files)
