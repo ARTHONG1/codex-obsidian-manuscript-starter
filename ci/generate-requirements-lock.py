@@ -54,22 +54,26 @@ def parse_direct_requirements(path: Path) -> dict[str, str]:
 def parse_wheel_tags(path: Path) -> tuple[str, str, str]:
     if path.suffix.lower() != ".whl":
         raise ValueError(f"non-wheel file in wheel directory: {path.name}")
-    parts = path.stem.split("-")
-    if len(parts) == 5:
-        _, _, python_tag, abi_tag, platform_tag = parts
-    elif len(parts) == 6:
-        _, _, _, python_tag, abi_tag, platform_tag = parts
-    else:
+    parts = path.stem.rsplit("-", 3)
+    if len(parts) != 4:
         raise ValueError(f"invalid wheel filename: {path.name}")
-    tag = (python_tag, abi_tag, platform_tag)
+    tag = (parts[1], parts[2], parts[3])
     if tag not in _ALLOWED_WHEEL_TAGS:
         rendered = "-".join(tag)
         raise ValueError(f"unsupported wheel tag: {rendered}")
     return tag
 
 
-def wheel_identity(path: Path) -> tuple[str, str]:
+def parse_wheel_filename(path: Path) -> tuple[str, str]:
     parse_wheel_tags(path)
+    prefix = path.stem.rsplit("-", 3)[0]
+    distribution, version_and_build = prefix.split("-", 1)
+    version = version_and_build.split("-", 1)[0]
+    return canonicalize_name(distribution), version
+
+
+def wheel_identity(path: Path) -> tuple[str, str]:
+    filename_name, filename_version = parse_wheel_filename(path)
     try:
         with zipfile.ZipFile(path) as archive:
             metadata_name = next(
@@ -84,7 +88,14 @@ def wheel_identity(path: Path) -> tuple[str, str]:
     version = message.get("Version")
     if not name or not version:
         raise ValueError(f"wheel metadata lacks Name or Version: {path.name}")
-    return canonicalize_name(name), version
+    metadata_identity = (canonicalize_name(name), version)
+    if metadata_identity != (filename_name, filename_version):
+        raise ValueError(
+            f"wheel filename does not match metadata: {path.name} "
+            f"({filename_name}=={filename_version} != "
+            f"{metadata_identity[0]}=={metadata_identity[1]})"
+        )
+    return metadata_identity
 
 
 def render_sorted_hash_entries(

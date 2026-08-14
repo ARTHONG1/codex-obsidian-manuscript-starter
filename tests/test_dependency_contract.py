@@ -133,6 +133,12 @@ class RuntimeDependencyContractTests(unittest.TestCase):
         for entry in entries:
             self.assertRegex(entry, r"^[A-Za-z0-9_.-]+==[^\s]+")
             self.assertRegex(entry, r"--hash=sha256:[0-9a-f]{64}")
+        lock_text = root_lock.read_text(encoding="utf-8")
+        for name, version in DIRECT_PINS:
+            self.assertRegex(
+                lock_text,
+                rf"(?m)^{generator.canonicalize_name(name)}=={version}(?:\s|\\)",
+            )
 
     def test_lock_generator_rejects_missing_direct_requirement(self):
         generator = (
@@ -214,6 +220,38 @@ class RuntimeLockGeneratorTests(unittest.TestCase):
                     generator.wheel_identity(wheel_dir / filename)
                 (wheel_dir / filename).unlink()
 
+    def test_rejects_filename_metadata_identity_mismatch(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            wheel_dir = Path(temp_dir)
+            mismatches = (
+                (
+                    "Pillow-12.3.0-cp312-cp312-win_amd64.whl",
+                    "reportlab",
+                    "12.3.0",
+                    "filename distribution",
+                ),
+                (
+                    "Pillow-12.3.0-cp312-cp312-win_amd64.whl",
+                    "Pillow",
+                    "12.3.1",
+                    "filename version",
+                ),
+            )
+            for filename, name, version, label in mismatches:
+                with self.subTest(label=label):
+                    wheel_path = _write_wheel(
+                        wheel_dir,
+                        filename,
+                        name,
+                        version,
+                        "cp312-cp312-win_amd64",
+                    )
+                    with self.assertRaisesRegex(
+                        ValueError, "wheel filename does not match metadata"
+                    ):
+                        generator.wheel_identity(wheel_path)
+                    wheel_path.unlink()
+
     def test_accepts_real_windows_python_312_compatible_tags(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             wheel_dir = Path(temp_dir)
@@ -272,6 +310,47 @@ class RuntimeLockGeneratorTests(unittest.TestCase):
             output_text = first_output.read_text(encoding="utf-8")
             for name, version in DIRECT_PINS:
                 self.assertIn(f"{generator.canonicalize_name(name)}=={version}", output_text)
+
+    def test_fixture_regeneration_gate_and_committed_lock_equality(self):
+        """Always-on fixture proof; real wheelhouse reproduction is a separate maintainer command.
+
+        Use TASK1_REAL_WHEELHOUSE with this module to regenerate from downloaded
+        wheels when validating the committed hashes against real artifacts.
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            wheel_dir = root / "wheelhouse"
+            wheel_dir.mkdir()
+            requirements_path = self._write_requirements(root)
+            created = [
+                _write_wheel(wheel_dir, filename, name, version, _filename_tag(filename))
+                for name, version, filename in FIXTURE_WHEELS
+            ]
+            output_path = root / "fixture.lock.txt"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(GENERATOR_PATH),
+                    str(requirements_path),
+                    str(wheel_dir),
+                    str(output_path),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                output_path.read_text(encoding="utf-8"),
+                self._expected_lock(created),
+            )
+            self.assertEqual(
+                (ROOT / "requirements.lock.txt").read_bytes(),
+                (
+                    ROOT
+                    / "plugins/obsidian-manuscript-publisher/requirements.lock.txt"
+                ).read_bytes(),
+            )
 
     def test_duplicate_hashes_are_deduplicated_for_same_package_version(self):
         with tempfile.TemporaryDirectory() as temp_dir:
