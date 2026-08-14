@@ -31,6 +31,6 @@ The following names and versions are locked by `requirements.lock.txt`; their ha
 
 - Version: 5.0.2
 - Release assets and SHA-256 values: `dependencies.lock.json`
-- License: MIT License, as recorded by the existing project notice
+- License: Not stated in inspected authoritative metadata.
 
 The project itself is distributed under the MIT License in `LICENSE`. This notice does not replace upstream license texts. A release that requires a license for a row marked “Not stated” must obtain and record authoritative package metadata before publishing.
