@@ -44,12 +44,12 @@ Describe "Owned process runner contract" {
     It "terminates a timed-out child tree while preserving an unrelated process" {
         $script:ownedModuleAvailable | Should Be $true
         $sentinel = Start-Process -FilePath "powershell.exe" -ArgumentList @(
-            "-NoProfile", "-Command", "Start-Sleep -Seconds 120"
+            "-NoProfile", "-Command", "Start-Sleep -Seconds 600"
         ) -PassThru -WindowStyle Hidden
         $run = New-OwnedProcessRun -RootPath $runRoot -Name "timeout"
         try {
             $result = Invoke-OwnedProcess -Run $run -Name "timeout-child" -FilePath "powershell.exe" `
-                -ArgumentList @("-NoProfile", "-Command", "Start-Sleep -Seconds 120") `
+                -ArgumentList @("-NoProfile", "-Command", "Start-Sleep -Seconds 600") `
                 -WorkingDirectory $runRoot -TimeoutSeconds 1
             $result.timedOut | Should Be $true
             Start-Sleep -Milliseconds 200
@@ -74,3 +74,4 @@ Describe "Owned process runner contract" {
         }
     }
 }
+
