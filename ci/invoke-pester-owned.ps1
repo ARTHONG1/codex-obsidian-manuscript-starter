@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
     [string[]]$Path,
+    [string]$PathListPath,
     [int]$ExpectedSkipCount = 0,
     [Parameter(Mandatory = $true)]
     [string]$ResultPath
@@ -9,7 +9,13 @@ param(
 
 $ErrorActionPreference = "Stop"
 Import-Module Pester -RequiredVersion 3.4.0
-$scriptPaths = $Path -split ","
+if ($PathListPath -and (Test-Path -LiteralPath $PathListPath)) {
+    $scriptPaths = Get-Content -Raw -LiteralPath $PathListPath -Encoding UTF8 | ConvertFrom-Json
+} elseif ($Path) {
+    $scriptPaths = @($Path | ForEach-Object { $_ -split "," } | Where-Object { $_ } | ForEach-Object { $_ })
+} else {
+    throw "No test paths provided to invoke-pester-owned."
+}
 $result = Invoke-Pester -Script $scriptPaths -PassThru
 $summary = [ordered]@{
     TotalCount = [int]$result.TotalCount
