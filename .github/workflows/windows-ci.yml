@@ -82,6 +82,14 @@ jobs:
         shell: pwsh
         run: .\ci\run-pester-tests.ps1 -Path (Get-ChildItem tests\*.Tests.ps1).FullName -ExpectedSkipCount 0
 
+  acceptance-contract:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Validate isolated beginner acceptance contract
+        shell: pwsh
+        run: .\ci\run-pester-tests.ps1 -Path (Resolve-Path .\tests\BeginnerAcceptanceContract.Tests.ps1).Path -ExpectedSkipCount 0
+
   aggregate:
     runs-on: windows-latest
     steps:
@@ -106,7 +114,7 @@ jobs:
           path: artifacts/test-evidence.json
 
   package:
-    needs: [contracts, installer, python, pester, aggregate]
+    needs: [contracts, installer, python, pester, acceptance-contract, aggregate]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2

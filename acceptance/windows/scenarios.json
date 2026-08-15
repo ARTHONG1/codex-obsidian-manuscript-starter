@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "scenarios": [
+    {"id":"codex_only","requires":"disposable_windows"},
+    {"id":"no_winget","requires":"disposable_windows"},
+    {"id":"restart_resume","requires":"disposable_windows"},
+    {"id":"path_collision","requires":"isolated_temp_root"},
+    {"id":"interrupted_download","requires":"isolated_temp_root"},
+    {"id":"tampered_release","requires":"isolated_temp_root"},
+    {"id":"delayed_rest","requires":"isolated_temp_root"},
+    {"id":"previous_skill_rollback","requires":"isolated_temp_root"}
+  ]
+}

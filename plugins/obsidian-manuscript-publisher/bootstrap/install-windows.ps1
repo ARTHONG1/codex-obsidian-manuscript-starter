@@ -64,7 +64,9 @@ if (-not $base.Ready) {
     }
     $wingetCommand = Get-Command winget.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $wingetCommand) {
-        if (-not $hasOfficialInstallers) { throw "official_installer_module_missing" }
+        if (-not $hasOfficialInstallers) {
+            return [pscustomobject]@{ Status = "python_install_manual_required"; Recovery = "Install Python 3.12 or use a release containing the verified official installer module, then rerun the same request." }
+        }
         $officialLock = Read-OfficialInstallerLock -Path (Join-Path $bootstrapRoot "official-installers.lock.json")
         $pythonInstaller = @($officialLock.installers | Where-Object { $_.product -eq "python" })[0]
         $artifact = Get-VerifiedOfficialInstallerArtifact -Entry $pythonInstaller -DestinationRoot (Join-Path $paths.RuntimeRoot "downloads")

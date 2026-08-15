@@ -23,6 +23,10 @@ try {
     $env:SCENARIO_RESULT_PATH = $scenarioEvidence
     $scenarioBootstrap = Join-Path $Root "bootstrap"
     Copy-Item -LiteralPath (Join-Path $repoRoot "bootstrap") -Destination $scenarioBootstrap -Recurse -Force
+    # These legacy contract scenarios replace Python/REST modules with fakes. Keep the
+    # official-download path out of that fake harness so it never performs network I/O.
+    Remove-Item -LiteralPath (Join-Path $scenarioBootstrap "lib\OfficialInstallers.psm1") -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $scenarioBootstrap "official-installers.lock.json") -Force -ErrorAction SilentlyContinue
     $installer = Join-Path $scenarioBootstrap "install-windows.ps1"
 
     $fakePythonRuntime = @'

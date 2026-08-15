@@ -65,8 +65,8 @@ Describe "Owned process runner contract" {
         $script:ownedModuleAvailable | Should Be $true
         $run = New-OwnedProcessRun -RootPath $runRoot -Name "failure"
         try {
-            $result = Invoke-OwnedProcess -Run $run -Name "missing-child" -FilePath (Join-Path $runRoot "missing.exe") `
-                -ArgumentList ([string[]]@()) -WorkingDirectory $runRoot -TimeoutSeconds 2
+            $result = Invoke-OwnedProcess -Run $run -Name "missing-child" -FilePath "powershell.exe" `
+                -ArgumentList ([string[]]@()) -WorkingDirectory (Join-Path $runRoot "missing-working-directory") -TimeoutSeconds 2
             $result.operationalFailure | Should Be $true
             Test-RunOwnedPidAlive -LedgerPath $run.ledgerPath | Should Be $false
         } finally {

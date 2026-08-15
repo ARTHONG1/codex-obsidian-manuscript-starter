@@ -151,15 +151,23 @@ function Invoke-OwnedProcess {
     Write-OwnedLedger -Run $Run
     $started = [DateTime]::UtcNow
     $process = $null
+    $gate = $null
     try {
+        $gateName = "Local\CodexOwned-" + [guid]::NewGuid().ToString('N')
+        $gate = New-Object System.Threading.EventWaitHandle($false, [Threading.EventResetMode]::ManualReset, $gateName)
         $info = New-Object System.Diagnostics.ProcessStartInfo
-        $info.FileName = $FilePath
-        $info.Arguments = (($ArgumentList | ForEach-Object { ConvertTo-WindowsArgument -Value ([string]$_) }) -join ' ')
+        $info.FileName = Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\powershell.exe"
+        $gateScript = '$event=[Threading.EventWaitHandle]::OpenExisting($env:CODEX_OWNED_GATE); try { $event.WaitOne() | Out-Null; $args=@($env:CODEX_OWNED_ARGS_JSON | ConvertFrom-Json); & $env:CODEX_OWNED_FILE @args; exit $LASTEXITCODE } finally { if ($event) { $event.Dispose() } }'
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($gateScript))
+        $info.Arguments = "-NoProfile -NonInteractive -EncodedCommand $encoded"
         $info.WorkingDirectory = $WorkingDirectory
         $info.UseShellExecute = $false
         $info.CreateNoWindow = $true
         $info.RedirectStandardOutput = $true
         $info.RedirectStandardError = $true
+        $info.EnvironmentVariables['CODEX_OWNED_GATE'] = $gateName
+        $info.EnvironmentVariables['CODEX_OWNED_FILE'] = $FilePath
+        $info.EnvironmentVariables['CODEX_OWNED_ARGS_JSON'] = (@($ArgumentList) | ConvertTo-Json -Compress)
         $process = New-Object System.Diagnostics.Process
         $process.StartInfo = $info
         if (-not $process.Start()) { throw "Process did not start." }
@@ -167,6 +175,7 @@ function Invoke-OwnedProcess {
         $entry.status = 'running'
         Write-OwnedLedger -Run $Run
         [CodexOwnedProcess.Native]::Assign($Run.jobHandle, $process)
+        $gate.Set() | Out-Null
         $stdoutTask = $process.StandardOutput.ReadToEndAsync()
         $stderrTask = $process.StandardError.ReadToEndAsync()
         $completed = $process.WaitForExit($TimeoutSeconds * 1000)
@@ -188,10 +197,11 @@ function Invoke-OwnedProcess {
     } catch {
         if ($process -and -not $process.HasExited) { [CodexOwnedProcess.Native]::Terminate($Run.jobHandle, 1) }
         $entry.status = 'operational_failure'
-        $entry.error = $_.Exception.Message
+        $entry.error = 'owned_process_operational_failure'
         Write-OwnedLedger -Run $Run
-        return [pscustomobject]@{ name = $Name; rootPid = if ($process) { $process.Id } else { $null }; exitCode = 1; timedOut = $false; durationMs = ([int]([DateTime]::UtcNow - $started).TotalMilliseconds); stdoutPath = $stdoutPath; stderrPath = $stderrPath; operationalFailure = $true; message = $_.Exception.Message }
+        return [pscustomobject]@{ name = $Name; rootPid = if ($process) { $process.Id } else { $null }; exitCode = 1; timedOut = $false; durationMs = ([int]([DateTime]::UtcNow - $started).TotalMilliseconds); stdoutPath = $stdoutPath; stderrPath = $stderrPath; operationalFailure = $true; message = 'owned_process_operational_failure' }
     } finally {
+        if ($gate) { $gate.Dispose() }
         if ($process) { $process.Dispose() }
     }
 }
