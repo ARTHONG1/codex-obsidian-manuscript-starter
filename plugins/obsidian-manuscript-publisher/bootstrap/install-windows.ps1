@@ -28,6 +28,12 @@ if ($null -eq $stage) {
 
 $base = Find-Python312
 if (-not $base.Ready) {
+    if ($base.Reason -eq "python_version_unsupported") {
+        return [pscustomobject]@{
+            Status = "python_version_unsupported"
+            Recovery = "Install the supported Python 3.12 runtime and rerun the same installer command."
+        }
+    }
     $wingetCommand = Get-Command winget.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $wingetCommand) {
         return [pscustomobject]@{
