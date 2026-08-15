@@ -17,7 +17,7 @@ class VerifyV3ReleaseTests(unittest.TestCase):
     def test_release_smoke_runs_native_validation_render_and_export(self):
         with tempfile.TemporaryDirectory() as temporary:
             result = subprocess.run([str(PYTHON), str(SCRIPT), "--output", str(Path(temporary) / "verify")], capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             payload = json.loads(result.stdout)
             self.assertEqual(payload["status"], "ready")
             self.assertIn(payload["desktop_export"], {"exported", "already_exported"})
