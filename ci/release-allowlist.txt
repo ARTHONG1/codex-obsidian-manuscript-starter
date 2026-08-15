@@ -4,6 +4,7 @@ bootstrap/**
 # The acquisition verifier is shipped as part of the bootstrap trust boundary.
 ci/action-lock.json
 ci/run-*.ps1
+ci/lib/**
 ci/release-allowlist.txt
 dependencies.lock.json
 INSTALL_PROMPT.md

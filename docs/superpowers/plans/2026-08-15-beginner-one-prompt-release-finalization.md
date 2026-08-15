@@ -10,7 +10,7 @@
 
 ## Current Baseline
 
-- Worktree: `C:\Users\user\Documents\ai agent\codex-obsidian-manuscript-starter\.worktrees\v052-full-remediation`
+- Worktree: the isolated `v052-full-remediation` worktree of this repository
 - Branch: `codex/v052-full-remediation`
 - Starting commit: `1ad10d62bc67379b34d7ec3b23996bca0e5c8f0f` or a reviewed successor.
 - Completed work that must not be repeated:
@@ -18,7 +18,7 @@
   - root/package `bootstrap/install-windows.ps1` byte parity;
   - aggregate evidence fallback and repository-root evidence location.
 - Public latest at plan time: `v0.5.1`. `v0.5.2` is a local release candidate until the final public reinstall gate passes.
-- Backup: `C:\Users\user\Documents\ai agent\backups\beginner-one-prompt-20260815-094256`
+- Backup: the timestamped `beginner-one-prompt-20260815-094256` backup directory outside the release tree
 - Backup bundle SHA-256: `3CF3402E46B7F36B1509F0FE8D48845927B66648F3C338016AC75E15AD5086D2`
 
 ## Global Constraints

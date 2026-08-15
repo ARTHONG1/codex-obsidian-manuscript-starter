@@ -37,6 +37,13 @@ function Resolve-Python312 {
 }
 
 Describe "Test runner contracts" {
+    It "routes aggregate children through the owned process module" {
+        $aggregate = Get-Content -Raw -LiteralPath $aggregateRunner
+        $aggregate | Should Match "OwnedProcess\.psm1"
+        $aggregate | Should Match "Invoke-OwnedProcess"
+        $aggregate | Should Match "Close-OwnedProcessRun"
+    }
+
     It "includes this contract in the aggregate Pester suite" {
         $aggregate = Get-Content -Raw -LiteralPath $aggregateRunner
         $aggregate | Should Match "tests\\TestRunnerContract\.Tests\.ps1"

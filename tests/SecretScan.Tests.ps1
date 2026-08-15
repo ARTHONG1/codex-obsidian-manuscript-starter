@@ -8,6 +8,18 @@ function Get-TrackedReleaseFiles {
     $raw = & git -C $repoRoot ls-files -z
     $items = [Text.Encoding]::UTF8.GetString([Text.Encoding]::Default.GetBytes(($raw -join ""))) -split "`0" |
         Where-Object { $_ -and ($_ -notin $fixtureFiles) }
+    $allowlistPath = Join-Path $repoRoot "ci\release-allowlist.txt"
+    $allowlist = @(Get-Content -LiteralPath $allowlistPath -Encoding UTF8 |
+        Where-Object { $_ -and ($_ -notmatch '^\s*#') } |
+        ForEach-Object { $_.Trim().Replace("\", "/") })
+    $items = $items | Where-Object {
+        $relative = $_.Replace("\", "/")
+        @($allowlist | Where-Object {
+            if ($_ -eq $relative) { return $true }
+            if ($_ -like '*/**' -and $relative.StartsWith($_.Substring(0, $_.Length - 3), [StringComparison]::OrdinalIgnoreCase)) { return $true }
+            return ($relative -like $_)
+        }).Count -gt 0
+    }
     foreach ($relative in $items) {
         if ([IO.Path]::GetExtension($relative).ToLowerInvariant() -in $textExtensions) {
             $path = Join-Path $repoRoot $relative

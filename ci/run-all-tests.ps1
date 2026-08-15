@@ -11,44 +11,61 @@ $repoRoot = (Resolve-Path $PSScriptRoot\..).Path
 $EvidencePath = if ($EvidencePath) { [IO.Path]::GetFullPath($EvidencePath) } else { Join-Path $repoRoot "artifacts\test-evidence.json" }
 $evidenceRoot = Split-Path -Parent $EvidencePath
 New-Item -ItemType Directory -Path $evidenceRoot -Force | Out-Null
+$ownedModule = Join-Path $PSScriptRoot "lib\OwnedProcess.psm1"
+Import-Module $ownedModule -Force
 $records = @()
 $overallExit = 0
+$ownedRun = New-OwnedProcessRun -RootPath (Join-Path $evidenceRoot "owned-runs") -Name "aggregate-tests"
+
+function ConvertTo-ChildArgumentList {
+    param([hashtable]$Arguments)
+    $result = @()
+    foreach ($key in $Arguments.Keys) {
+        $value = $Arguments[$key]
+        $result += "-$key"
+        if ($value -is [array]) { $result += (($value -join ",")) }
+        elseif ($null -ne $value) { $result += ([string]$value) }
+    }
+    return $result
+}
 
 function Invoke-ChildRunner {
     param([string]$ScriptPath, [hashtable]$Arguments, [string]$Name)
-    $output = @()
-    $exitCode = 1
-    $failure = $null
-    try {
-        $output = @(& $ScriptPath @Arguments 2>&1)
-        $exitCode = $LASTEXITCODE
-    } catch {
-        $failure = $_.Exception.Message
-        $exitCode = 1
-    }
-    $jsonLine = @($output | Where-Object { $_ -is [string] -and $_ -match '^\s*\{' } | Select-Object -Last 1)
+    $child = Invoke-OwnedProcess -Run $ownedRun -Name $Name -FilePath (Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe") `
+        -ArgumentList (@("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $ScriptPath) + (ConvertTo-ChildArgumentList -Arguments $Arguments)) `
+        -WorkingDirectory $repoRoot -TimeoutSeconds 900
+    $jsonLine = if (Test-Path -LiteralPath $child.stdoutPath) {
+        @(Get-Content -LiteralPath $child.stdoutPath -Encoding UTF8 | Where-Object { $_ -match '^\s*\{' } | Select-Object -Last 1)
+    } else { @() }
     $summary = if ($jsonLine) { try { $jsonLine | ConvertFrom-Json } catch { $null } } else { $null }
     if (-not $summary) {
-        $summary = [ordered]@{ runner = $Name; operationalFailure = $true; message = if ($failure) { $failure } else { "runner did not emit a JSON summary" } }
+        $stderr = if (Test-Path -LiteralPath $child.stderrPath) { (Get-Content -Raw -LiteralPath $child.stderrPath -Encoding UTF8).Trim() } else { "" }
+        $summary = [ordered]@{ runner = $Name; operationalFailure = $true; timedOut = [bool]$child.timedOut; message = if ($child.operationalFailure) { $child.message } elseif ($stderr) { $stderr } else { "runner did not emit a JSON summary" } }
     }
-    [pscustomobject]@{ runner = $Name; exitCode = $exitCode; counts = $summary }
+    [pscustomobject]@{ runner = $Name; exitCode = [int]$child.exitCode; timedOut = [bool]$child.timedOut; counts = $summary }
 }
 
-$pythonResult = Invoke-ChildRunner -Name "python" -ScriptPath (Join-Path $PSScriptRoot "run-python-tests.ps1") -Arguments @{ PythonPath = $PythonPath; ExpectedSkipCount = $ExpectedPythonSkipCount }
-$records += $pythonResult
-$overallExit = [Math]::Max($overallExit, [int]$pythonResult.exitCode)
+try {
+    $pythonResult = Invoke-ChildRunner -Name "python" -ScriptPath (Join-Path $PSScriptRoot "run-python-tests.ps1") -Arguments @{ PythonPath = $PythonPath; ExpectedSkipCount = $ExpectedPythonSkipCount }
+    $records += $pythonResult
+    $overallExit = [Math]::Max($overallExit, [int]$pythonResult.exitCode)
 
-$pesterPaths = @(
-    "tests\InstallerContract.Tests.ps1",
-    "tests\PythonRuntimeContract.Tests.ps1",
-    "tests\SecretScan.Tests.ps1",
-    "tests\TestRunnerContract.Tests.ps1"
-) | ForEach-Object { Join-Path $repoRoot $_ }
-$pesterResult = Invoke-ChildRunner -Name "pester" -ScriptPath (Join-Path $PSScriptRoot "run-pester-tests.ps1") -Arguments @{ Path = $pesterPaths; ExpectedSkipCount = $ExpectedPesterSkipCount }
-$records += $pesterResult
-$overallExit = [Math]::Max($overallExit, [int]$pesterResult.exitCode)
-
-$evidence = [ordered]@{ schemaVersion = 1; successful = ($overallExit -eq 0); results = $records }
-try { $evidence | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $EvidencePath -Encoding UTF8 } catch { $overallExit = 1; throw }
+    $pesterPaths = @(
+        "tests\InstallerContract.Tests.ps1",
+        "tests\PythonRuntimeContract.Tests.ps1",
+        "tests\SecretScan.Tests.ps1",
+        "tests\TestRunnerContract.Tests.ps1"
+    ) | ForEach-Object { Join-Path $repoRoot $_ }
+    $pesterResult = Invoke-ChildRunner -Name "pester" -ScriptPath (Join-Path $PSScriptRoot "run-pester-tests.ps1") -Arguments @{ Path = $pesterPaths; ExpectedSkipCount = $ExpectedPesterSkipCount }
+    $records += $pesterResult
+    $overallExit = [Math]::Max($overallExit, [int]$pesterResult.exitCode)
+} catch {
+    $overallExit = 1
+    $records += [pscustomobject]@{ runner = "aggregate"; exitCode = 1; timedOut = $false; counts = [ordered]@{ operationalFailure = $true; message = $_.Exception.Message } }
+} finally {
+    $evidence = [ordered]@{ schemaVersion = 2; successful = ($overallExit -eq 0); runId = $ownedRun.runId; results = $records }
+    try { $evidence | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $EvidencePath -Encoding UTF8 } catch { $overallExit = 1 }
+    Close-OwnedProcessRun -Run $ownedRun
+}
 if ($overallExit -ne 0) { exit 1 }
 exit 0
