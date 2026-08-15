@@ -99,6 +99,13 @@ class CiContractTests(unittest.TestCase):
         for fragment in required_fragments:
             self.assertIn(fragment, workflow)
 
+    def test_workflow_runs_owned_aggregate_evidence_before_packaging(self):
+        workflow = read_workflow()
+        self.assertRegex(workflow, r"(?m)^\s*aggregate:")
+        self.assertIn("run-all-tests.ps1", workflow)
+        self.assertIn("needs: [contracts, installer, python, pester, aggregate]", workflow)
+        self.assertIn("test-evidence.json", workflow)
+
     def test_workflow_keeps_ci_state_in_temporary_roots(self):
         workflow = read_workflow()
         self.assertTrue("New-TemporaryFile" in workflow or "New-Item -ItemType Directory" in workflow)
