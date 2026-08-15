@@ -57,6 +57,18 @@ try {
         "tests\TestRunnerContract.Tests.ps1"
     ) | ForEach-Object { Join-Path $repoRoot $_ }
     $pesterResult = Invoke-ChildRunner -Name "pester" -ScriptPath (Join-Path $PSScriptRoot "run-pester-tests.ps1") -Arguments @{ Path = $pesterPaths; ExpectedSkipCount = $ExpectedPesterSkipCount }
+    # Pester's Windows integration tests can transiently collide on ephemeral
+    # ports/process cleanup under hosted runners. Retry once, while preserving
+    # the first result as evidence; a second failure remains a hard failure.
+    if ([int]$pesterResult.exitCode -ne 0) {
+        $firstPesterResult = $pesterResult
+        $pesterResult = Invoke-ChildRunner -Name "pester-retry" -ScriptPath (Join-Path $PSScriptRoot "run-pester-tests.ps1") -Arguments @{ Path = $pesterPaths; ExpectedSkipCount = $ExpectedPesterSkipCount }
+        $pesterResult | Add-Member -NotePropertyName attempts -NotePropertyValue 2
+        $pesterResult | Add-Member -NotePropertyName firstAttemptExitCode -NotePropertyValue ([int]$firstPesterResult.exitCode)
+        $pesterResult | Add-Member -NotePropertyName firstAttemptCounts -NotePropertyValue $firstPesterResult.counts
+    } else {
+        $pesterResult | Add-Member -NotePropertyName attempts -NotePropertyValue 1
+    }
     $records += $pesterResult
     $overallExit = [Math]::Max($overallExit, [int]$pesterResult.exitCode)
 } catch {
