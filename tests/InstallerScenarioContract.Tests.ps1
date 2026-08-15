@@ -56,4 +56,20 @@ Describe "Installer scenario runner contract" {
         Test-Path -LiteralPath $marker -PathType Leaf | Should Be $true
         (Get-Content -Raw -LiteralPath $marker).Trim() | Should Be "keep"
     }
+
+    It "proves the supported and unsupported runtime scenarios have distinct outcomes" {
+        $unsupported = & pwsh -NoProfile -File $runnerPath -Scenario python311_selected
+        $ready = & pwsh -NoProfile -File $runnerPath -Scenario python312_ready
+        $unsupportedJson = ($unsupported | Select-Object -Last 1 | ConvertFrom-Json)
+        $readyJson = ($ready | Select-Object -Last 1 | ConvertFrom-Json)
+        $unsupportedJson.Status | Should Be "python_version_unsupported"
+        $readyJson.Status | Should Be "community_plugin_consent_required"
+        $unsupportedJson.Status | Should Not Be $readyJson.Status
+    }
+
+    It "proves venv reuse starts from a pre-existing marker" {
+        $result = & pwsh -NoProfile -File $runnerPath -Scenario venv_reuse
+        $json = ($result | Select-Object -Last 1 | ConvertFrom-Json)
+        $json.VenvReused | Should Be $true
+    }
 }

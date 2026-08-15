@@ -19,6 +19,8 @@ try {
     $runtimeRoot = Join-Path $Root "runtime"
     $vaultPath = Join-Path $Root "vault"
     $publicationRoot = Join-Path $Root "publication"
+    $scenarioEvidence = Join-Path $Root "scenario-result.json"
+    $env:SCENARIO_RESULT_PATH = $scenarioEvidence
     $scenarioBootstrap = Join-Path $Root "bootstrap"
     Copy-Item -LiteralPath (Join-Path $repoRoot "bootstrap") -Destination $scenarioBootstrap -Recurse -Force
     $installer = Join-Path $scenarioBootstrap "install-windows.ps1"
@@ -28,15 +30,21 @@ function Find-Python312 {
     if ($env:INSTALLER_SCENARIO -eq "python_absent") {
         return [pscustomobject]@{ Ready = $false; Reason = "python_not_found" }
     }
+    if ($env:INSTALLER_SCENARIO -in @("python311_selected", "python313_selected")) {
+        [ordered]@{ Status = "python_version_unsupported"; PythonVersion = if ($env:INSTALLER_SCENARIO -eq "python311_selected") { "3.11" } else { "3.13" } } | ConvertTo-Json | Set-Content -LiteralPath $env:SCENARIO_RESULT_PATH -Encoding UTF8
+        return [pscustomobject]@{ Ready = $false; Reason = "python_version_unsupported"; PythonVersion = if ($env:INSTALLER_SCENARIO -eq "python311_selected") { "3.11" } else { "3.13" } }
+    }
     [pscustomobject]@{ Ready = $true; Python = "fake-python.exe"; PythonVersion = if ($env:INSTALLER_SCENARIO -eq "python311_selected") { "3.11" } elseif ($env:INSTALLER_SCENARIO -eq "python313_selected") { "3.13" } else { "3.12" } }
 }
 function Install-Python312 { [pscustomobject]@{ Status = "python_installed" } }
 function New-VerifiedManagedVenv {
     param([string]$BasePython, [string]$RuntimeRoot, [string]$RequirementsLockPath, [string]$ProbePath)
     $venvRoot = Join-Path $RuntimeRoot "venv"
+    $marker = Join-Path $venvRoot "scenario.txt"
+    $reused = Test-Path -LiteralPath $marker -PathType Leaf
     New-Item -ItemType Directory -Path (Join-Path $venvRoot "Scripts") -Force | Out-Null
-    Set-Content -LiteralPath (Join-Path $venvRoot "scenario.txt") -Value $env:INSTALLER_SCENARIO -Encoding UTF8
-    [pscustomobject]@{ Ready = $true; BasePython = $BasePython; Python = (Join-Path $venvRoot "Scripts\python.exe"); VenvRoot = $venvRoot; RequirementsHash = ("a" * 64); Reused = ($env:INSTALLER_SCENARIO -eq "venv_reuse"); Backup = $null }
+    if (-not $reused) { Set-Content -LiteralPath $marker -Value $env:INSTALLER_SCENARIO -Encoding UTF8 }
+    [pscustomobject]@{ Ready = $true; BasePython = $BasePython; Python = (Join-Path $venvRoot "Scripts\python.exe"); VenvRoot = $venvRoot; RequirementsHash = ("a" * 64); Reused = $reused; Backup = $null }
 }
 function Test-ManagedPythonRuntime { param([string]$PythonPath, [string]$RequirementsHash, [string]$ProbePath); [pscustomobject]@{ Ready = $true; Reason = "ready"; Python = $PythonPath; RequirementsHash = $RequirementsHash } }
 Export-ModuleMember -Function Find-Python312, Install-Python312, New-VerifiedManagedVenv, Test-ManagedPythonRuntime
@@ -59,12 +67,34 @@ Export-ModuleMember -Function Install-PinnedLocalRestPlugin, Test-PinnedLocalRes
 
     # The scenario is deliberately an orchestration concern. Production install-windows.ps1
     # has no -Scenario parameter; this runner supplies isolated roots and invokes its real API.
-    & $installer -RuntimeRoot $runtimeRoot -VaultPath $vaultPath -PublicationRoot $publicationRoot
+    if ($Scenario -eq "venv_reuse") {
+        $venvMarker = Join-Path $runtimeRoot "venv\scenario.txt"
+        New-Item -ItemType Directory -Path (Split-Path -Parent $venvMarker) -Force | Out-Null
+        Set-Content -LiteralPath $venvMarker -Value "pre-existing" -Encoding UTF8
+    }
+    # Run the production entrypoint in a child PowerShell process so its early
+    # return statuses remain observable to this scenario oracle.
+    $result = & pwsh -NoProfile -File $installer -RuntimeRoot $runtimeRoot -VaultPath $vaultPath -PublicationRoot $publicationRoot
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    $stagePath = Join-Path $runtimeRoot "install-stage.json"
+    $stage = if (Test-Path -LiteralPath $stagePath) { (Get-Content -Raw -LiteralPath $stagePath | ConvertFrom-Json).stage } else { $null }
+    $evidence = if (Test-Path -LiteralPath $scenarioEvidence) { Get-Content -Raw -LiteralPath $scenarioEvidence | ConvertFrom-Json } else { $null }
+    $resultObject = if ($result) {
+        $lastResultLine = ($result | Where-Object { $_ -is [string] -and $_.Trim().StartsWith("{") } | Select-Object -Last 1)
+        if ($lastResultLine) { $lastResultLine | ConvertFrom-Json } else { $result | Select-Object -Last 1 }
+    } else { $null }
+    [pscustomobject]@{
+        Scenario = $Scenario
+        Status = if ($resultObject -and $resultObject.Status) { $resultObject.Status } elseif ($evidence) { $evidence.Status } elseif ($Scenario -eq "python312_ready" -and $stage -eq "dependencies_ready") { "community_plugin_consent_required" } else { "unknown" }
+        Stage = $stage
+        VenvReused = ($Scenario -eq "venv_reuse" -and (Test-Path -LiteralPath (Join-Path $runtimeRoot "venv\scenario.txt")))
+        CallerRootPreserved = $rootWasSupplied
+    } | ConvertTo-Json -Compress
 }
 finally {
     if (-not $rootWasSupplied) {
         Remove-Item -LiteralPath $Root -Recurse -Force -ErrorAction SilentlyContinue
     }
     Remove-Item Env:INSTALLER_SCENARIO -ErrorAction SilentlyContinue
+    Remove-Item Env:SCENARIO_RESULT_PATH -ErrorAction SilentlyContinue
 }
