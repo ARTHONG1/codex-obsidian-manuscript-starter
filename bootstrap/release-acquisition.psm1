@@ -44,6 +44,43 @@ function Test-ReleaseManifest {
     $true
 }
 
+function Resolve-GitObjectCommit {
+    param(
+        [Parameter(Mandatory=$true)][string]$Repository,
+        [Parameter(Mandatory=$true)][string]$Tag,
+        [Parameter(Mandatory=$true)]$RefObject,
+        [Parameter(Mandatory=$true)][scriptblock]$ObjectResolver,
+        [int]$MaxDepth = 4
+    )
+    if ([string]$RefObject.ref -ne "refs/tags/$Tag") { Fail-Release 'release_tag_identity_mismatch' }
+    $current = $RefObject
+    $seen = @{}
+    for ($depth = 0; $depth -le $MaxDepth; $depth++) {
+        $type = [string]$current.object.type
+        $sha = [string]$current.object.sha
+        if ($type -eq 'commit') {
+            if ($sha -notmatch '^[0-9a-fA-F]{40}$') { Fail-Release 'release_commit_invalid' }
+            return $sha
+        }
+        if ($type -ne 'tag' -or $sha -notmatch '^[0-9a-fA-F]{40}$') { Fail-Release 'release_tag_target_invalid' }
+        if ($seen.ContainsKey($sha)) { Fail-Release 'release_tag_cycle' }
+        $seen[$sha] = $true
+        if ($depth -ge $MaxDepth) { Fail-Release 'release_tag_depth_exceeded' }
+        $next = & $ObjectResolver $sha
+        if (-not $next -or [string]$next.sha -ne $sha) { Fail-Release 'release_tag_target_invalid' }
+        $current = $next
+    }
+    Fail-Release 'release_tag_depth_exceeded'
+}
+
+function Get-GitTagObject {
+    param([Parameter(Mandatory=$true)][string]$Repository, [Parameter(Mandatory=$true)][string]$Sha)
+    $request = [Net.HttpWebRequest]::Create("https://api.github.com/repos/$Repository/git/tags/$Sha")
+    $request.Method = 'GET'; $request.AllowAutoRedirect = $false; $request.UserAgent = 'codex-obsidian-release-acquisition'
+    $response = $request.GetResponse()
+    try { (New-Object IO.StreamReader($response.GetResponseStream())).ReadToEnd() | ConvertFrom-Json } finally { $response.Dispose() }
+}
+
 function Resolve-StableRelease {
     param([Parameter(Mandatory=$true)][string]$Repository)
     if ($Repository -notmatch '^[^/]+/[^/]+$') { Fail-Release 'repository_invalid' }
@@ -61,8 +98,7 @@ function Resolve-StableRelease {
     $tagRequest.Method = 'GET'; $tagRequest.AllowAutoRedirect = $false; $tagRequest.UserAgent = 'codex-obsidian-release-acquisition'
     $tagResponse = $tagRequest.GetResponse()
     try { $tagRef = (New-Object IO.StreamReader($tagResponse.GetResponseStream())).ReadToEnd() | ConvertFrom-Json } finally { $tagResponse.Dispose() }
-    $commit = [string]$tagRef.object.sha
-    if ($commit -notmatch '^[0-9a-fA-F]{40}$') { Fail-Release 'release_commit_invalid' }
+    $commit = Resolve-GitObjectCommit -Repository $Repository -Tag $release.tag_name -RefObject $tagRef -ObjectResolver { param($sha) Get-GitTagObject -Repository $Repository -Sha $sha }
     [ordered]@{ Repository=$Repository; Version=$release.tag_name.Substring(1); Tag=$release.tag_name; Commit=$commit; ArchiveUrl=$asset.browser_download_url; ManifestUrl="https://github.com/$Repository/releases/download/$($release.tag_name)/release-manifest.json"; ChecksumsUrl="https://github.com/$Repository/releases/download/$($release.tag_name)/SHA256SUMS" }
 }
 
@@ -70,7 +106,7 @@ function Get-VerifiedRelease {
     param([Parameter(Mandatory=$true)]$Release, [Parameter(Mandatory=$true)][string]$DownloadRoot)
     Test-ReleaseArchiveUrl $Release.ArchiveUrl | Out-Null
     foreach ($metadataUrl in @($Release.ManifestUrl, $Release.ChecksumsUrl)) {
-        if ([string]$metadataUrl -notmatch "^https://github\.com/" -or [string]$metadataUrl -notmatch "/releases/download/v\d+\.\d+\.\d+/") { Fail-Release 'release_metadata_url_invalid' }
+        if ([string]$metadataUrl -notmatch ("^https://github\.com/" + [regex]::Escape($Release.Repository) + "/releases/download/" + [regex]::Escape($Release.Tag) + "/")) { Fail-Release 'release_metadata_url_invalid' }
     }
     New-Item -ItemType Directory -Path $DownloadRoot -Force | Out-Null
     $archive = Join-Path $DownloadRoot ([IO.Path]::GetFileName(([Uri]$Release.ArchiveUrl).AbsolutePath))
@@ -94,16 +130,16 @@ function Get-VerifiedRelease {
     try {
         $names = @($zip.Entries | ForEach-Object FullName); Test-ReleaseZipMemberNames $names | Out-Null
         $manifestFiles = @{}; foreach ($file in @($manifest.files)) { $manifestFiles[[string]$file.name] = ([string]$file.sha256).ToLowerInvariant() }
+        if ($manifestFiles.Count -ne $names.Count -or @($names | Where-Object { -not $manifestFiles.ContainsKey($_) }).Count -gt 0) { Fail-Release 'release_manifest_member_set_mismatch' }
         foreach ($entry in $zip.Entries) {
             $memory = New-Object IO.MemoryStream; $stream = $entry.Open(); try { $stream.CopyTo($memory) } finally { $stream.Dispose() }
             $actual = ([BitConverter]::ToString(([Security.Cryptography.SHA256]::Create()).ComputeHash($memory.ToArray())) -replace '-', '').ToLowerInvariant(); $memory.Dispose()
             if (-not $manifestFiles.ContainsKey($entry.FullName) -or $manifestFiles[$entry.FullName] -ne $actual) { Fail-Release 'release_file_checksum_mismatch' }
         }
-        if ($manifestFiles.Count -ne $names.Count) { Fail-Release 'release_manifest_member_set_mismatch' }
     } finally { $zip.Dispose() }
     $root = Join-Path $DownloadRoot ([guid]::NewGuid().ToString('N'))
     try { [IO.Compression.ZipFile]::ExtractToDirectory($archive, $root) } catch { if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }; throw }
     [pscustomobject]@{ ReleaseRoot=$root; Archive=$archive; Manifest=$manifestPath }
 }
 
-Export-ModuleMember -Function Resolve-StableRelease, Get-VerifiedRelease, Test-ReleaseManifest, Test-ReleaseArchiveUrl, Test-ReleaseZipMemberNames
+Export-ModuleMember -Function Resolve-StableRelease, Get-VerifiedRelease, Test-ReleaseManifest, Test-ReleaseArchiveUrl, Test-ReleaseZipMemberNames, Resolve-GitObjectCommit
