@@ -53,8 +53,7 @@ try {
     $pesterPaths = @(
         "tests\InstallerContract.Tests.ps1",
         "tests\PythonRuntimeContract.Tests.ps1",
-        "tests\SecretScan.Tests.ps1",
-        "tests\TestRunnerContract.Tests.ps1"
+        "tests\SecretScan.Tests.ps1"
     ) | ForEach-Object { Join-Path $repoRoot $_ }
     $pesterResult = Invoke-ChildRunner -Name "pester" -ScriptPath (Join-Path $PSScriptRoot "run-pester-tests.ps1") -Arguments @{ Path = $pesterPaths; ExpectedSkipCount = $ExpectedPesterSkipCount }
     # Pester's Windows integration tests can transiently collide on ephemeral

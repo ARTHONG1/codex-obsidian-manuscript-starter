@@ -2,6 +2,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $pythonRunner = Join-Path $repoRoot "ci\run-python-tests.ps1"
 $pesterRunner = Join-Path $repoRoot "ci\run-pester-tests.ps1"
 $aggregateRunner = Join-Path $repoRoot "ci\run-all-tests.ps1"
+$workflow = Join-Path $repoRoot ".github\workflows\windows-ci.yml"
 
 function Invoke-ChildPowerShell {
     param(
@@ -44,9 +45,9 @@ Describe "Test runner contracts" {
         $aggregate | Should Match "Close-OwnedProcessRun"
     }
 
-    It "includes this contract in the aggregate Pester suite" {
-        $aggregate = Get-Content -Raw -LiteralPath $aggregateRunner
-        $aggregate | Should Match "tests\\TestRunnerContract\.Tests\.ps1"
+    It "includes this contract in the dedicated full Pester suite" {
+        $workflowText = Get-Content -Raw -LiteralPath $workflow
+        $workflowText | Should Match "Get-ChildItem tests\\\*\.Tests\.ps1"
     }
 
     It "reports a passing Python module as success with explicit counts" {
