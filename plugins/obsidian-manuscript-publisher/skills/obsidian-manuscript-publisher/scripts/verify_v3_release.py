@@ -105,6 +105,8 @@ def main(argv: list[str] | None = None) -> int:
             except (TypeError, ValueError):
                 combined_output = f"{result.stdout}\n{result.stderr}"
                 export_code = next((code for code in safe_export_codes if code in combined_output), export_code)
+                if export_code == "export_failed":
+                    export_code = f"export_process_exit_{abs(int(result.returncode))}"
             raise SmokeFailure("export", export_code)
         payload = json.loads(result.stdout)
         if payload.get("status") not in {"exported", "already_exported"}:
