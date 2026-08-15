@@ -8,10 +8,10 @@ Describe 'immutable release acquisition contract' {
         $manifest = [pscustomobject]@{
             schemaVersion = 1
             repository = 'ARTHONG1/codex-obsidian-manuscript-starter'
-            version = '0.5.2'
-            tag = 'v0.5.2'
+            version = '0.6.0'
+            tag = 'v0.6.0'
             commit = ('a' * 40)
-            archive = 'codex-obsidian-manuscript-starter-v0.5.2.zip'
+            archive = 'codex-obsidian-manuscript-starter-v0.6.0.zip'
             archiveSha256 = ('b' * 64)
             files = @([pscustomobject]@{ name = 'README.md'; sha256 = ('c' * 64) })
         }
@@ -51,7 +51,7 @@ Describe 'immutable release acquisition contract' {
             [switch]$MismatchedHash
         )
         New-Item -ItemType Directory -Path $Root -Force | Out-Null
-        $archive = Join-Path $Root 'codex-obsidian-manuscript-starter-v0.5.2.zip'
+        $archive = Join-Path $Root 'codex-obsidian-manuscript-starter-v0.6.0.zip'
         $entries = @(
             foreach ($name in $ZipMembers.Keys) {
                 [pscustomobject]@{ Name = $name; Content = $ZipMembers[$name] }
@@ -69,10 +69,10 @@ Describe 'immutable release acquisition contract' {
         $releaseManifest = [ordered]@{
             schemaVersion = 1
             repository = 'ARTHONG1/codex-obsidian-manuscript-starter'
-            version = '0.5.2'
-            tag = 'v0.5.2'
+            version = '0.6.0'
+            tag = 'v0.6.0'
             commit = ('a' * 40)
-            archive = 'codex-obsidian-manuscript-starter-v0.5.2.zip'
+            archive = 'codex-obsidian-manuscript-starter-v0.6.0.zip'
             archiveSha256 = $archiveHash
             files = $files
         }
@@ -80,7 +80,7 @@ Describe 'immutable release acquisition contract' {
         [IO.File]::WriteAllText($manifestPath, ($releaseManifest | ConvertTo-Json -Depth 6 -Compress), (New-Object Text.UTF8Encoding($false)))
         $manifestHash = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
         $checksumsPath = Join-Path $Root 'SHA256SUMS.source'
-        Set-Content -LiteralPath $checksumsPath -Value "$archiveHash  codex-obsidian-manuscript-starter-v0.5.2.zip`n$manifestHash  release-manifest.json" -Encoding ASCII
+        Set-Content -LiteralPath $checksumsPath -Value "$archiveHash  codex-obsidian-manuscript-starter-v0.6.0.zip`n$manifestHash  release-manifest.json" -Encoding ASCII
         [pscustomobject]@{ Archive=$archive; Manifest=$manifestPath; Checksums=$checksumsPath; ArchiveSha256=$archiveHash }
     }
 
@@ -88,12 +88,12 @@ Describe 'immutable release acquisition contract' {
         param([Parameter(Mandatory=$true)]$Fixture)
         [pscustomobject]@{
             Repository = 'ARTHONG1/codex-obsidian-manuscript-starter'
-            Version = '0.5.2'
-            Tag = 'v0.5.2'
+            Version = '0.6.0'
+            Tag = 'v0.6.0'
             Commit = ('a' * 40)
-            ArchiveUrl = 'https://github.com/ARTHONG1/codex-obsidian-manuscript-starter/releases/download/v0.5.2/codex-obsidian-manuscript-starter-v0.5.2.zip'
-            ManifestUrl = 'https://github.com/ARTHONG1/codex-obsidian-manuscript-starter/releases/download/v0.5.2/release-manifest.json'
-            ChecksumsUrl = 'https://github.com/ARTHONG1/codex-obsidian-manuscript-starter/releases/download/v0.5.2/SHA256SUMS'
+            ArchiveUrl = 'https://github.com/ARTHONG1/codex-obsidian-manuscript-starter/releases/download/v0.6.0/codex-obsidian-manuscript-starter-v0.6.0.zip'
+            ManifestUrl = 'https://github.com/ARTHONG1/codex-obsidian-manuscript-starter/releases/download/v0.6.0/release-manifest.json'
+            ChecksumsUrl = 'https://github.com/ARTHONG1/codex-obsidian-manuscript-starter/releases/download/v0.6.0/SHA256SUMS'
             ArchiveSha256 = $Fixture.ArchiveSha256
         }
     }
@@ -149,11 +149,11 @@ Describe 'immutable release acquisition contract' {
 
     It 'resolves lightweight tag refs to exact commit identity' {
         $ref = [pscustomobject]@{
-            ref = 'refs/tags/v0.5.2'
-            url = 'https://api.github.com/repos/ARTHONG1/codex-obsidian-manuscript-starter/git/refs/tags/v0.5.2'
+            ref = 'refs/tags/v0.6.0'
+            url = 'https://api.github.com/repos/ARTHONG1/codex-obsidian-manuscript-starter/git/refs/tags/v0.6.0'
             object = [pscustomobject]@{ type = 'commit'; sha = ('1' * 40) }
         }
-        Resolve-GitObjectCommit -Repository 'ARTHONG1/codex-obsidian-manuscript-starter' -Tag 'v0.5.2' -RefObject $ref -ObjectResolver { throw 'should not dereference lightweight tags' } |
+        Resolve-GitObjectCommit -Repository 'ARTHONG1/codex-obsidian-manuscript-starter' -Tag 'v0.6.0' -RefObject $ref -ObjectResolver { throw 'should not dereference lightweight tags' } |
             Should Be ('1' * 40)
     }
 
@@ -161,8 +161,8 @@ Describe 'immutable release acquisition contract' {
         $tagSha = ('2' * 40)
         $commit = ('3' * 40)
         $ref = [pscustomobject]@{
-            ref = 'refs/tags/v0.5.2'
-            url = 'https://api.github.com/repos/ARTHONG1/codex-obsidian-manuscript-starter/git/refs/tags/v0.5.2'
+            ref = 'refs/tags/v0.6.0'
+            url = 'https://api.github.com/repos/ARTHONG1/codex-obsidian-manuscript-starter/git/refs/tags/v0.6.0'
             object = [pscustomobject]@{ type = 'tag'; sha = $tagSha }
         }
         $objects = @{
@@ -172,17 +172,17 @@ Describe 'immutable release acquisition contract' {
                 object = [pscustomobject]@{ type = 'commit'; sha = $commit }
             }
         }
-        Resolve-GitObjectCommit -Repository 'ARTHONG1/codex-obsidian-manuscript-starter' -Tag 'v0.5.2' -RefObject $ref -ObjectResolver { param($sha) $objects[$sha] } |
+        Resolve-GitObjectCommit -Repository 'ARTHONG1/codex-obsidian-manuscript-starter' -Tag 'v0.6.0' -RefObject $ref -ObjectResolver { param($sha) $objects[$sha] } |
             Should Be $commit
     }
 
     It 'rejects tag cycles, non-commit terminals, mismatched identity, and excessive dereference depth' {
         $repository = 'ARTHONG1/codex-obsidian-manuscript-starter'
-        $tag = 'v0.5.2'
+        $tag = 'v0.6.0'
         $tagSha = ('4' * 40)
         $ref = [pscustomobject]@{
-            ref = 'refs/tags/v0.5.2'
-            url = "https://api.github.com/repos/$repository/git/refs/tags/v0.5.2"
+            ref = 'refs/tags/v0.6.0'
+            url = "https://api.github.com/repos/$repository/git/refs/tags/v0.6.0"
             object = [pscustomobject]@{ type = 'tag'; sha = $tagSha }
         }
         { Resolve-GitObjectCommit -Repository $repository -Tag $tag -RefObject $ref -ObjectResolver {
@@ -204,7 +204,7 @@ Describe 'immutable release acquisition contract' {
     It 'rejects release metadata URLs outside the exact repository and tag path' {
         $fixture = Save-TestReleaseFixture -Root $TestDrive
         $release = New-TestRelease -Fixture $fixture
-        $release.ManifestUrl = 'https://github.com/other/repository/releases/download/v0.5.2/release-manifest.json'
+        $release.ManifestUrl = 'https://github.com/other/repository/releases/download/v0.6.0/release-manifest.json'
         Mock-TestDownloads -Fixture $fixture
         { Get-VerifiedRelease -Release $release -DownloadRoot (Join-Path $TestDrive 'downloads') } |
             Should Throw 'release_metadata_url_invalid'
@@ -227,12 +227,12 @@ Describe 'immutable release acquisition contract' {
     It 'removes stale partial files and failed extraction residue while preserving unrelated root contents' {
         $downloadRoot = Join-Path $TestDrive 'cleanup-downloads'
         New-Item -ItemType Directory -Path $downloadRoot -Force | Out-Null
-        Set-Content -LiteralPath (Join-Path $downloadRoot 'codex-obsidian-manuscript-starter-v0.5.2.zip.partial') -Value 'stale' -Encoding ASCII
+        Set-Content -LiteralPath (Join-Path $downloadRoot 'codex-obsidian-manuscript-starter-v0.6.0.zip.partial') -Value 'stale' -Encoding ASCII
         $fixture = Save-TestReleaseFixture -Root (Join-Path $TestDrive 'cleanup-fixture')
         $release = New-TestRelease -Fixture $fixture
         Mock Invoke-WebRequest -ModuleName release-acquisition { throw 'download failed' }
         { Get-VerifiedRelease -Release $release -DownloadRoot $downloadRoot } | Should Throw
-        Test-Path -LiteralPath (Join-Path $downloadRoot 'codex-obsidian-manuscript-starter-v0.5.2.zip.partial') |
+        Test-Path -LiteralPath (Join-Path $downloadRoot 'codex-obsidian-manuscript-starter-v0.6.0.zip.partial') |
             Should Be $false
 
         $conflictRoot = Join-Path $TestDrive 'conflict-fixture'

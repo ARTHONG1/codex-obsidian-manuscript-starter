@@ -6,10 +6,26 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$repoRoot = (Resolve-Path $PSScriptRoot\..).Path
+$expandedPaths = @()
+foreach ($p in $Path) {
+    $full = if (Test-Path -LiteralPath $p) { (Resolve-Path -LiteralPath $p).Path } else { Join-Path $repoRoot $p }
+    if (Test-Path -LiteralPath $full) {
+        $item = Get-Item -LiteralPath $full
+        if ($item.PSIsContainer) {
+            $expandedPaths += Get-ChildItem -LiteralPath $item.FullName -Filter "*.Tests.ps1" -File | Select-Object -ExpandProperty FullName
+        } else {
+            $expandedPaths += $item.FullName
+        }
+    } else {
+        $expandedPaths += $p
+    }
+}
+
 $resultPath = Join-Path ([IO.Path]::GetTempPath()) ("pester-result-" + [guid]::NewGuid().ToString("N") + ".json")
 $pathListPath = Join-Path ([IO.Path]::GetTempPath()) ("pester-paths-" + [guid]::NewGuid().ToString("N") + ".json")
 try {
-    @($Path) | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $pathListPath -Encoding UTF8
+    @($expandedPaths) | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $pathListPath -Encoding UTF8
     $arguments = @(
         "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
         (Join-Path $PSScriptRoot "invoke-pester-owned.ps1"),

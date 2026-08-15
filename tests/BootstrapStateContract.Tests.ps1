@@ -13,7 +13,7 @@ Describe "Bootstrap state v3 contract" {
         $state = [ordered]@{
             schemaVersion = 3
             stage = "skills_ready"
-            releaseId = "v0.5.2"
+            releaseId = "v0.6.0"
             skillsSha256 = "a" * 64
             restartRequired = $false
         }

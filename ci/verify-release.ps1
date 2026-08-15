@@ -72,7 +72,7 @@ $patterns = @(
     "ci/action-lock.json", "ci/run-*.ps1", "ci/release-allowlist.txt", "dependencies.lock.json",
     "INSTALL_PROMPT.md", "LICENSE", "README.md", "requirements.lock.txt", "SECURITY.md",
     "THIRD_PARTY_NOTICES.md", "CITATION.cff", "docs/INSTALL_GUIDE.md", "docs/USAGE_GUIDE.md",
-    "docs/TROUBLESHOOTING.md", "docs/RELEASE.md", "docs/RELEASE_NOTES_v0.5.2.md",
+    "docs/TROUBLESHOOTING.md", "docs/RELEASE.md", "docs/RELEASE_NOTES_v0.6.0.md",
     "plugins/obsidian-manuscript-publisher/**"
 )
 $zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $Archive).Path)
@@ -114,7 +114,7 @@ $required = @(
     "ci/release-allowlist.txt", "dependencies.lock.json", "requirements.lock.txt",
     "INSTALL_PROMPT.md", "LICENSE", "README.md", "SECURITY.md", "THIRD_PARTY_NOTICES.md",
     "CITATION.cff", "docs/INSTALL_GUIDE.md", "docs/USAGE_GUIDE.md", "docs/TROUBLESHOOTING.md",
-    "docs/RELEASE.md", "docs/RELEASE_NOTES_v0.5.2.md",
+    "docs/RELEASE.md", "docs/RELEASE_NOTES_v0.6.0.md",
     "plugins/obsidian-manuscript-publisher/.codex-plugin/plugin.json"
 )
 foreach ($requiredFile in $required) {
@@ -123,7 +123,7 @@ foreach ($requiredFile in $required) {
 $pluginKey = ($bytesByName.Keys | Where-Object { $_ -eq "plugins/obsidian-manuscript-publisher/.codex-plugin/plugin.json" } | Select-Object -First 1)
 $plugin = [Text.Encoding]::UTF8.GetString($bytesByName[$pluginKey])
 $pluginJson = $plugin | ConvertFrom-Json
-if ($pluginJson.version -ne "0.5.2") { Fail "bootstrap identity/version is not v0.5.2." }
+if ($pluginJson.version -ne "0.6.0") { Fail "bootstrap identity/version is not v0.6.0." }
 $manifestKey = ($bytesByName.Keys | Where-Object { $_ -eq "ci/release-allowlist.txt" } | Select-Object -First 1)
 $manifest = [Text.Encoding]::UTF8.GetString($bytesByName[$manifestKey])
 if ($manifest -notmatch "plugins/obsidian-manuscript-publisher/\*\*") { Fail "release allowlist identity is incomplete." }

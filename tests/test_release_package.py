@@ -41,10 +41,10 @@ class ReleasePackageTests(unittest.TestCase):
                 "-OutputRoot",
                 str(output),
                 "-Version",
-                "0.5.2",
+                "0.6.0",
             )
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-            archive = output / "codex-obsidian-manuscript-starter-v0.5.2.zip"
+            archive = output / "codex-obsidian-manuscript-starter-v0.6.0.zip"
             checksums = output / "SHA256SUMS"
             manifest = output / "release-manifest.json"
             self.assertTrue(archive.is_file())
@@ -52,8 +52,8 @@ class ReleasePackageTests(unittest.TestCase):
             self.assertTrue(manifest.is_file())
             release_manifest = json.loads(manifest.read_text(encoding="utf-8"))
             self.assertEqual(release_manifest["schemaVersion"], 1)
-            self.assertEqual(release_manifest["version"], "0.5.2")
-            self.assertEqual(release_manifest["tag"], "v0.5.2")
+            self.assertEqual(release_manifest["version"], "0.6.0")
+            self.assertEqual(release_manifest["tag"], "v0.6.0")
             self.assertEqual(release_manifest["archive"], archive.name)
             self.assertEqual(
                 [entry["name"] for entry in release_manifest["files"]],
@@ -66,7 +66,7 @@ class ReleasePackageTests(unittest.TestCase):
                 self.assertEqual(len(names), len({name.casefold() for name in names}))
                 self.assertIn("plugins/obsidian-manuscript-publisher/.codex-plugin/plugin.json", names)
                 self.assertIn("docs/USAGE_GUIDE.md", names)
-                self.assertIn("docs/RELEASE_NOTES_v0.5.2.md", names)
+                self.assertIn("docs/RELEASE_NOTES_v0.6.0.md", names)
                 self.assertNotIn("tests/test_release_package.py", names)
                 contents = {name: package.read(name) for name in names}
                 self.assertEqual(contents["dependencies.lock.json"], contents["bootstrap/dependencies.lock.json"])
@@ -122,10 +122,10 @@ class ReleasePackageTests(unittest.TestCase):
                 "-OutputRoot",
                 str(output),
                 "-Version",
-                "0.5.2",
+                "0.6.0",
             )
             self.assertEqual(build.returncode, 0, build.stderr + build.stdout)
-            archive = output / "codex-obsidian-manuscript-starter-v0.5.2.zip"
+            archive = output / "codex-obsidian-manuscript-starter-v0.6.0.zip"
             checksums = output / "SHA256SUMS"
             extraction = root / "clean-install"
             verified = run_powershell(
@@ -156,10 +156,10 @@ class ReleasePackageTests(unittest.TestCase):
                     "-OutputRoot",
                     str(output),
                     "-Version",
-                    "0.5.2",
+                    "0.6.0",
                 )
                 self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-                with ZipFile(output / "codex-obsidian-manuscript-starter-v0.5.2.zip") as package:
+                with ZipFile(output / "codex-obsidian-manuscript-starter-v0.6.0.zip") as package:
                     identities.append(
                         [
                             (item.filename, hashlib.sha256(package.read(item.filename)).hexdigest())
@@ -181,7 +181,7 @@ class ReleasePackageTests(unittest.TestCase):
                 "-OutputRoot",
                 str(Path(temporary) / "output"),
                 "-Version",
-                "0.5.2",
+                "0.6.0",
             )
             self.assertNotEqual(result.returncode, 0)
 

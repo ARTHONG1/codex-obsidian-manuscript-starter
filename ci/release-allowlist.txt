@@ -20,5 +20,5 @@ docs/INSTALL_GUIDE.md
 docs/USAGE_GUIDE.md
 docs/TROUBLESHOOTING.md
 docs/RELEASE.md
-docs/RELEASE_NOTES_v0.5.2.md
+docs/RELEASE_NOTES_v0.6.0.md
 plugins/obsidian-manuscript-publisher/**
