@@ -57,32 +57,49 @@ function Resolve-StableRelease {
     $asset = @($release.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1)
     if (-not $asset) { Fail-Release 'release_archive_missing' }
     Test-ReleaseArchiveUrl $asset.browser_download_url | Out-Null
-    [ordered]@{ Repository=$Repository; Version=$release.tag_name.Substring(1); Tag=$release.tag_name; Commit=[string]$release.target_commitish; ArchiveUrl=$asset.browser_download_url; ManifestUrl="https://github.com/$Repository/releases/download/$($release.tag_name)/release-manifest.json"; ChecksumsUrl="https://github.com/$Repository/releases/download/$($release.tag_name)/SHA256SUMS" }
+    $tagRequest = [Net.HttpWebRequest]::Create("https://api.github.com/repos/$Repository/git/ref/tags/$($release.tag_name)")
+    $tagRequest.Method = 'GET'; $tagRequest.AllowAutoRedirect = $false; $tagRequest.UserAgent = 'codex-obsidian-release-acquisition'
+    $tagResponse = $tagRequest.GetResponse()
+    try { $tagRef = (New-Object IO.StreamReader($tagResponse.GetResponseStream())).ReadToEnd() | ConvertFrom-Json } finally { $tagResponse.Dispose() }
+    $commit = [string]$tagRef.object.sha
+    if ($commit -notmatch '^[0-9a-fA-F]{40}$') { Fail-Release 'release_commit_invalid' }
+    [ordered]@{ Repository=$Repository; Version=$release.tag_name.Substring(1); Tag=$release.tag_name; Commit=$commit; ArchiveUrl=$asset.browser_download_url; ManifestUrl="https://github.com/$Repository/releases/download/$($release.tag_name)/release-manifest.json"; ChecksumsUrl="https://github.com/$Repository/releases/download/$($release.tag_name)/SHA256SUMS" }
 }
 
 function Get-VerifiedRelease {
     param([Parameter(Mandatory=$true)]$Release, [Parameter(Mandatory=$true)][string]$DownloadRoot)
     Test-ReleaseArchiveUrl $Release.ArchiveUrl | Out-Null
+    foreach ($metadataUrl in @($Release.ManifestUrl, $Release.ChecksumsUrl)) {
+        if ([string]$metadataUrl -notmatch "^https://github\.com/" -or [string]$metadataUrl -notmatch "/releases/download/v\d+\.\d+\.\d+/") { Fail-Release 'release_metadata_url_invalid' }
+    }
     New-Item -ItemType Directory -Path $DownloadRoot -Force | Out-Null
     $archive = Join-Path $DownloadRoot ([IO.Path]::GetFileName(([Uri]$Release.ArchiveUrl).AbsolutePath))
-    Invoke-WebRequest -Uri $Release.ArchiveUrl -OutFile "$archive.partial" -UseBasicParsing
-    Move-Item -LiteralPath "$archive.partial" -Destination $archive -Force
+    $archivePartial = "$archive.partial"
+    try { Invoke-WebRequest -Uri $Release.ArchiveUrl -OutFile $archivePartial -UseBasicParsing; Move-Item -LiteralPath $archivePartial -Destination $archive -Force } finally { if (Test-Path -LiteralPath $archivePartial) { Remove-Item -LiteralPath $archivePartial -Force -ErrorAction SilentlyContinue } }
     $archiveHash = Get-ReleaseSha256 $archive
     if ($Release.ArchiveSha256 -and $archiveHash -ne [string]$Release.ArchiveSha256) { Fail-Release 'release_checksum_mismatch' }
     $checksums = Join-Path $DownloadRoot 'SHA256SUMS'
     $manifestPath = Join-Path $DownloadRoot 'release-manifest.json'
-    Invoke-WebRequest -Uri $Release.ChecksumsUrl -OutFile "$checksums.partial" -UseBasicParsing
-    Move-Item -LiteralPath "$checksums.partial" -Destination $checksums -Force
-    Invoke-WebRequest -Uri $Release.ManifestUrl -OutFile "$manifestPath.partial" -UseBasicParsing
-    Move-Item -LiteralPath "$manifestPath.partial" -Destination $manifestPath -Force
+    foreach ($download in @(@($Release.ChecksumsUrl, $checksums), @($Release.ManifestUrl, $manifestPath))) {
+        $partial = "$($download[1]).partial"
+        try { Invoke-WebRequest -Uri $download[0] -OutFile $partial -UseBasicParsing; Move-Item -LiteralPath $partial -Destination $download[1] -Force } finally { if (Test-Path -LiteralPath $partial) { Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue } }
+    }
     $checksumLines = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($checksums)).Trim().Split("`n")
     $manifestLine = $checksumLines | Where-Object { $_ -match '  release-manifest\.json$' } | Select-Object -First 1
     if (-not $manifestLine -or $manifestLine -notmatch '^([0-9a-fA-F]{64})  release-manifest\.json$' -or $Matches[1].ToLowerInvariant() -ne (Get-ReleaseSha256 $manifestPath)) { Fail-Release 'release_manifest_checksum_mismatch' }
     $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
     Test-ReleaseManifest -Manifest $manifest -ExpectedRepository $Release.Repository | Out-Null
-    if ([string]$manifest.archive -ne [IO.Path]::GetFileName($archive) -or [string]$manifest.archiveSha256 -ne $archiveHash) { Fail-Release 'release_manifest_archive_mismatch' }
+    if ([string]$manifest.archive -ne [IO.Path]::GetFileName($archive) -or [string]$manifest.archiveSha256 -ne $archiveHash -or [string]$manifest.commit -ne [string]$Release.Commit) { Fail-Release 'release_manifest_identity_mismatch' }
     $zip = [IO.Compression.ZipFile]::OpenRead($archive)
-    try { $names = @($zip.Entries | ForEach-Object FullName); Test-ReleaseZipMemberNames $names | Out-Null } finally { $zip.Dispose() }
+    try {
+        $names = @($zip.Entries | ForEach-Object FullName); Test-ReleaseZipMemberNames $names | Out-Null
+        $manifestFiles = @{}; foreach ($file in @($manifest.files)) { $manifestFiles[[string]$file.name] = ([string]$file.sha256).ToLowerInvariant() }
+        foreach ($entry in $zip.Entries) {
+            $memory = New-Object IO.MemoryStream; $stream = $entry.Open(); try { $stream.CopyTo($memory) } finally { $stream.Dispose() }
+            $actual = ([BitConverter]::ToString(([Security.Cryptography.SHA256]::Create()).ComputeHash($memory.ToArray())) -replace '-', '').ToLowerInvariant(); $memory.Dispose()
+            if (-not $manifestFiles.ContainsKey($entry.FullName) -or $manifestFiles[$entry.FullName] -ne $actual) { Fail-Release 'release_file_checksum_mismatch' }
+        }
+    } finally { $zip.Dispose() }
     $root = Join-Path $DownloadRoot ([guid]::NewGuid().ToString('N'))
     [IO.Compression.ZipFile]::ExtractToDirectory($archive, $root)
     [pscustomobject]@{ ReleaseRoot=$root; Archive=$archive; Manifest=$manifestPath }
