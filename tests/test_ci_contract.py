@@ -103,7 +103,7 @@ class CiContractTests(unittest.TestCase):
         workflow = read_workflow()
         self.assertRegex(workflow, r"(?m)^\s*aggregate:")
         self.assertIn("run-all-tests.ps1", workflow)
-        self.assertIn("needs: [contracts, installer, python, pester, aggregate]", workflow)
+        self.assertIn("needs: [contracts, installer, python, pester, acceptance-contract, aggregate]", workflow)
         self.assertIn("test-evidence.json", workflow)
 
     def test_skill_manifest_generator_excludes_generated_python_bytecode(self):
