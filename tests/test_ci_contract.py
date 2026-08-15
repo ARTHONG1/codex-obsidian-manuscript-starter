@@ -106,6 +106,12 @@ class CiContractTests(unittest.TestCase):
         self.assertIn("needs: [contracts, installer, python, pester, aggregate]", workflow)
         self.assertIn("test-evidence.json", workflow)
 
+    def test_skill_manifest_generator_excludes_generated_python_bytecode(self):
+        generator = ROOT / "ci" / "generate-codex-skills-manifest.py"
+        text = generator.read_text(encoding="utf-8")
+        self.assertIn("__pycache__", text)
+        self.assertIn(".pyc", text)
+
     def test_workflow_keeps_ci_state_in_temporary_roots(self):
         workflow = read_workflow()
         self.assertTrue("New-TemporaryFile" in workflow or "New-Item -ItemType Directory" in workflow)

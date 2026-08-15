@@ -29,7 +29,11 @@ def build_manifest(root: Path) -> dict:
         if not absolute_root.is_dir():
             raise SystemExit(f"skill source is missing: {source_root.as_posix()}")
         members = []
-        for path in sorted(p for p in absolute_root.rglob("*") if p.is_file()):
+        for path in sorted(
+            p
+            for p in absolute_root.rglob("*")
+            if p.is_file() and "__pycache__" not in p.parts and p.suffix.lower() != ".pyc"
+        ):
             relative = path.relative_to(absolute_root).as_posix()
             members.append({"path": relative, "sha256": sha256(path)})
         skills.append(
