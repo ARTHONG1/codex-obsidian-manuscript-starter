@@ -3,7 +3,7 @@
 이 파일의 아래 프롬프트 전체를 복사해 Codex 채팅창에 붙여넣습니다.
 
 ```text
-이 저장소의 검증된 안정 릴리스 기준으로 Codex Obsidian Manuscript Starter를 Windows에 처음부터 설치해줘. 다음 목표 릴리스 후보는 `v0.5.2`이며, 공개되기 전에는 실제 immutable release ref를 확인해 사용해줘.
+이 저장소의 검증된 안정 릴리스 기준으로 Codex Obsidian Manuscript Starter를 Windows에 처음부터 설치해줘. 다음 목표 릴리스 후보는 `v0.6.0`이며, 공개되기 전에는 실제 immutable release ref를 확인해 사용해줘.
 
 나는 Codex만 설치한 초보자다. 설치 중에는 다음 원칙을 지켜줘.
 
