@@ -64,6 +64,12 @@ class CiContractTests(unittest.TestCase):
             self.assertIn(scenario, workflow)
         self.assertIn("windows-latest", workflow)
 
+    def test_workflow_delegates_installer_matrix_to_scenario_runner(self):
+        workflow = read_workflow()
+        self.assertIn("ci\\run-installer-scenario.ps1", workflow)
+        self.assertNotIn("install-windows.ps1 -RuntimeRoot", workflow)
+        self.assertIn("-Scenario $env:INSTALLER_SCENARIO", workflow)
+
     def test_workflow_invokes_required_contracts_and_release_checks(self):
         workflow = read_workflow()
         required_fragments = (

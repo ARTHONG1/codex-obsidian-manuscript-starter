@@ -54,7 +54,7 @@ jobs:
           $root = Join-Path ([IO.Path]::GetTempPath()) "codex-installer-$([guid]::NewGuid().ToString('N'))"
           New-Item -ItemType Directory -Path $root | Out-Null
           try {
-            & .\bootstrap\install-windows.ps1 -RuntimeRoot (Join-Path $root "runtime") -VaultPath (Join-Path $root "vault") -PublicationRoot (Join-Path $root "publication") -Scenario $env:INSTALLER_SCENARIO
+            & .\ci\run-installer-scenario.ps1 -Scenario $env:INSTALLER_SCENARIO -Root $root
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
 
