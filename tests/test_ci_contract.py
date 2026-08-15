@@ -70,6 +70,15 @@ class CiContractTests(unittest.TestCase):
         self.assertNotIn("install-windows.ps1 -RuntimeRoot", workflow)
         self.assertIn("-Scenario $env:INSTALLER_SCENARIO", workflow)
 
+    def test_contracts_job_sets_up_python_and_installs_dev_requirements(self):
+        workflow = read_workflow()
+        contracts = workflow.split("  installer:", 1)[0]
+        self.assertIn("actions/setup-python@", contracts)
+        self.assertIn('python-version: "3.12"', contracts)
+        self.assertIn("requirements-dev", contracts)
+        self.assertIn('(Get-Command python).Source', contracts)
+        self.assertNotIn("C:\\hostedtoolcache\\windows\\Python\\3.12.0\\x64\\python.exe", contracts)
+
     def test_workflow_invokes_required_contracts_and_release_checks(self):
         workflow = read_workflow()
         required_fragments = (

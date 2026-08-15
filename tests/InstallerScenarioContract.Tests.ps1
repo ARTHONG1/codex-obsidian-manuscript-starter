@@ -26,4 +26,34 @@ Describe "Installer scenario runner contract" {
         $source | Should Match "Remove-Item.*Recurse.*Force"
         $source | Should Match "INSTALLER_SCENARIO"
     }
+
+    It "configures distinct runtime conditions instead of only labeling scenarios" {
+        $source = Get-Content -Raw -LiteralPath $runnerPath -Encoding UTF8
+        foreach ($condition in @("python311_selected", "python313_selected", "python_absent", "python312_ready", "restart_resume", "venv_reuse")) {
+            $source | Should Match ([regex]::Escape("$condition"))
+        }
+        $source | Should Match "PythonRuntime\.psm1"
+        $source | Should Match "Set-Content.*PythonRuntime"
+        $source | Should Match "restart_resume"
+        $source | Should Match "venv_reuse"
+    }
+
+    It "does not remove a caller-supplied root" {
+        $source = Get-Content -Raw -LiteralPath $runnerPath -Encoding UTF8
+        $source | Should Match "rootWasSupplied"
+        $source | Should Match ([regex]::Escape('if (-not $rootWasSupplied)'))
+        $source | Should Match ([regex]::Escape('Remove-Item -LiteralPath $Root -Recurse -Force'))
+        $source | Should Match "restart_resume"
+    }
+
+    It "preserves a pre-existing caller root at runtime" {
+        $callerRoot = Join-Path $TestDrive "caller-root"
+        New-Item -ItemType Directory -Path $callerRoot -Force | Out-Null
+        $marker = Join-Path $callerRoot "caller-marker.txt"
+        Set-Content -LiteralPath $marker -Value "keep" -Encoding UTF8
+        & pwsh -NoProfile -File $runnerPath -Scenario python_absent -Root $callerRoot | Out-Null
+        $LASTEXITCODE | Should Be 0
+        Test-Path -LiteralPath $marker -PathType Leaf | Should Be $true
+        (Get-Content -Raw -LiteralPath $marker).Trim() | Should Be "keep"
+    }
 }
