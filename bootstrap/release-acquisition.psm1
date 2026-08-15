@@ -99,9 +99,10 @@ function Get-VerifiedRelease {
             $actual = ([BitConverter]::ToString(([Security.Cryptography.SHA256]::Create()).ComputeHash($memory.ToArray())) -replace '-', '').ToLowerInvariant(); $memory.Dispose()
             if (-not $manifestFiles.ContainsKey($entry.FullName) -or $manifestFiles[$entry.FullName] -ne $actual) { Fail-Release 'release_file_checksum_mismatch' }
         }
+        if ($manifestFiles.Count -ne $names.Count) { Fail-Release 'release_manifest_member_set_mismatch' }
     } finally { $zip.Dispose() }
     $root = Join-Path $DownloadRoot ([guid]::NewGuid().ToString('N'))
-    [IO.Compression.ZipFile]::ExtractToDirectory($archive, $root)
+    try { [IO.Compression.ZipFile]::ExtractToDirectory($archive, $root) } catch { if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }; throw }
     [pscustomobject]@{ ReleaseRoot=$root; Archive=$archive; Manifest=$manifestPath }
 }
 

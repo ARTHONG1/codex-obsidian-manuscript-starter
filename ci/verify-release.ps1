@@ -98,6 +98,16 @@ try {
 } finally { $zip = $null }
 $manifestNames = @($releaseManifest.files | ForEach-Object { [string]$_.name })
 if (($manifestNames -join "`n") -ne ($members -join "`n")) { Fail "release manifest file identity mismatch." }
+$manifestHashes = @{}
+foreach ($file in @($releaseManifest.files)) {
+    if ([string]$file.sha256 -notmatch '^[0-9a-fA-F]{64}$') { Fail "invalid manifest file checksum: $($file.name)" }
+    $manifestHashes[[string]$file.name] = ([string]$file.sha256).ToLowerInvariant()
+}
+foreach ($member in $members) {
+    if (-not $manifestHashes.ContainsKey($member)) { Fail "manifest is missing ZIP member: $member" }
+    $actualMemberHash = ([BitConverter]::ToString(([Security.Cryptography.SHA256]::Create()).ComputeHash($bytesByName[$member.ToLowerInvariant()])) -replace '-', '').ToLowerInvariant()
+    if ($actualMemberHash -ne $manifestHashes[$member]) { Fail "release member checksum mismatch: $member" }
+}
 $sortedMembers = Sort-Ordinal $members
 if (($sortedMembers -join "`n") -ne ($members -join "`n")) { Fail "members are not sorted." }
 $required = @(
