@@ -20,6 +20,18 @@ RENDERER = ROOT / "render_manuscript.py"
 EXPORTER = ROOT / "export_publication_bundle.py"
 
 
+class SmokeFailure(RuntimeError):
+    def __init__(self, stage: str):
+        super().__init__(stage)
+        self.stage = stage
+
+
+def _run_stage(stage: str, command: list[str]) -> None:
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise SmokeFailure(stage)
+
+
 def _package(root: Path) -> Path:
     version = root / "source" / "v0.1"
     assets = version / "assets"
@@ -71,23 +83,22 @@ def main(argv: list[str] | None = None) -> int:
         args.output.mkdir(parents=True, exist_ok=True)
         version = _package(args.output)
         report = version / "asset-validation.json"
-        for command in (
-            [sys.executable, str(VALIDATOR), str(version / "manuscript.json"), str(version / "asset-manifest.json"), str(report)],
-            [sys.executable, str(RENDERER), str(version / "manuscript.json"), str(version)],
-        ):
-            completed = subprocess.run(command, capture_output=True, text=True)
-            if completed.returncode != 0:
-                raise RuntimeError("v3_validation_or_render_failed")
-        result = subprocess.run([sys.executable, str(EXPORTER), "--source-version-dir", str(version), "--publication-root", str(args.output / "Desktop" / "옵시디언 원고"), "--project-destination-root", "V3 Verification", "--vault-path", str(args.output / "Vault")], capture_output=True, text=True)
+        _run_stage("validation", [sys.executable, str(VALIDATOR), str(version / "manuscript.json"), str(version / "asset-manifest.json"), str(report)])
+        _run_stage("render", [sys.executable, str(RENDERER), str(version / "manuscript.json"), str(version)])
+        export_command = [sys.executable, str(EXPORTER), "--source-version-dir", str(version), "--publication-root", str(args.output / "Desktop" / "옵시디언 원고"), "--project-destination-root", "V3 Verification", "--vault-path", str(args.output / "Vault")]
+        result = subprocess.run(export_command, capture_output=True, text=True)
         if result.returncode != 0:
-            raise RuntimeError("v3_desktop_export_failed")
+            raise SmokeFailure("export")
         payload = json.loads(result.stdout)
         if payload.get("status") not in {"exported", "already_exported"}:
             raise RuntimeError("v3_desktop_export_not_verified")
         print(json.dumps({"status": "ready", "desktop_export": payload.get("status"), "source_version": "v0.1"}, ensure_ascii=False))
         return 0
+    except SmokeFailure as error:
+        print(json.dumps({"status": "failed", "stage": error.stage, "code": f"{error.stage}_failed", "error_type": type(error).__name__}, ensure_ascii=False))
+        return 1
     except Exception as error:
-        print(json.dumps({"status": "failed", "code": "v3_release_verification_failed", "error": type(error).__name__}, ensure_ascii=False))
+        print(json.dumps({"status": "failed", "stage": "setup", "code": "v3_release_verification_failed", "error_type": type(error).__name__}, ensure_ascii=False))
         return 1
 
 

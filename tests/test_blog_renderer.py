@@ -27,6 +27,14 @@ SKILL_ROOT = (
 VALIDATOR = SKILL_ROOT / "scripts" / "validate_blog.py"
 RENDERER = SKILL_ROOT / "scripts" / "render_blog.py"
 
+
+def same_file_target(left: Path, right: Path) -> bool:
+    """Compare Windows paths by file identity, not 8.3/long spelling."""
+    try:
+        return os.path.samefile(left, right)
+    except (FileNotFoundError, OSError):
+        return os.path.normcase(str(left.resolve())) == os.path.normcase(str(right.resolve()))
+
 MODE_SECTIONS = {
     "practical_guide": [
         ("problem", "계획서를 다시 쓰게 되는 지점", ["학교 계획서는 형식보다 반복되는 확인 작업에서 시간이 더 걸립니다."]),
@@ -1085,7 +1093,7 @@ class BlogRendererTests(BlogPackageMixin, unittest.TestCase):
 
             def fail_report_once(source, destination):
                 nonlocal failed
-                if Path(destination) == report and str(source).endswith(".tmp") and not failed:
+                if same_file_target(Path(destination), report) and str(source).endswith(".tmp") and not failed:
                     failed = True
                     raise OSError("simulated report replace failure")
                 return real_replace(source, destination)
@@ -1098,6 +1106,7 @@ class BlogRendererTests(BlogPackageMixin, unittest.TestCase):
             self.assertEqual((version_dir / "blog.html").read_text(encoding="utf-8"), "old-html")
             self.assertEqual(report.read_bytes(), previous_report)
             self.assertNotIn("validated_outputs", json.loads(report.read_text(encoding="utf-8")))
+            self.assertTrue(failed)
 
     def test_renderer_refuses_wrong_profile_without_partial_outputs(self):
         with tempfile.TemporaryDirectory() as temporary:
