@@ -21,9 +21,10 @@ EXPORTER = ROOT / "export_publication_bundle.py"
 
 
 class SmokeFailure(RuntimeError):
-    def __init__(self, stage: str):
+    def __init__(self, stage: str, code: str | None = None):
         super().__init__(stage)
         self.stage = stage
+        self.code = code or f"{stage}_failed"
 
 
 def _run_stage(stage: str, command: list[str]) -> None:
@@ -88,14 +89,20 @@ def main(argv: list[str] | None = None) -> int:
         export_command = [sys.executable, str(EXPORTER), "--source-version-dir", str(version), "--publication-root", str(args.output / "Desktop" / "옵시디언 원고"), "--project-destination-root", "V3 Verification", "--vault-path", str(args.output / "Vault")]
         result = subprocess.run(export_command, capture_output=True, text=True)
         if result.returncode != 0:
-            raise SmokeFailure("export")
+            export_code = "export_failed"
+            try:
+                export_payload = json.loads(result.stdout)
+                export_code = str(export_payload.get("code") or export_code)
+            except (TypeError, ValueError):
+                pass
+            raise SmokeFailure("export", export_code)
         payload = json.loads(result.stdout)
         if payload.get("status") not in {"exported", "already_exported"}:
             raise RuntimeError("v3_desktop_export_not_verified")
         print(json.dumps({"status": "ready", "desktop_export": payload.get("status"), "source_version": "v0.1"}, ensure_ascii=False))
         return 0
     except SmokeFailure as error:
-        print(json.dumps({"status": "failed", "stage": error.stage, "code": f"{error.stage}_failed", "error_type": type(error).__name__}, ensure_ascii=False))
+        print(json.dumps({"status": "failed", "stage": error.stage, "code": error.code, "error_type": type(error).__name__}, ensure_ascii=False))
         return 1
     except Exception as error:
         print(json.dumps({"status": "failed", "stage": "setup", "code": "v3_release_verification_failed", "error_type": type(error).__name__}, ensure_ascii=False))
