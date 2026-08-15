@@ -90,11 +90,21 @@ def main(argv: list[str] | None = None) -> int:
         result = subprocess.run(export_command, capture_output=True, text=True)
         if result.returncode != 0:
             export_code = "export_failed"
+            safe_export_codes = {
+                "python_dependency_missing",
+                "unsafe_path",
+                "unmanaged_root_file",
+                "unexpected_root_file",
+                "filesystem_error",
+                "invalid_package",
+                "publication_lock_timeout",
+            }
             try:
                 export_payload = json.loads(result.stdout)
                 export_code = str(export_payload.get("code") or export_code)
             except (TypeError, ValueError):
-                pass
+                combined_output = f"{result.stdout}\n{result.stderr}"
+                export_code = next((code for code in safe_export_codes if code in combined_output), export_code)
             raise SmokeFailure("export", export_code)
         payload = json.loads(result.stdout)
         if payload.get("status") not in {"exported", "already_exported"}:
