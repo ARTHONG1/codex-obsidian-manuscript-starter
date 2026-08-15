@@ -1,6 +1,7 @@
 .agents/plugins/marketplace.json
 .github/workflows/windows-ci.yml
 bootstrap/**
+# The acquisition verifier is shipped as part of the bootstrap trust boundary.
 ci/action-lock.json
 ci/run-*.ps1
 ci/release-allowlist.txt

@@ -46,8 +46,19 @@ class ReleasePackageTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             archive = output / "codex-obsidian-manuscript-starter-v0.5.2.zip"
             checksums = output / "SHA256SUMS"
+            manifest = output / "release-manifest.json"
             self.assertTrue(archive.is_file())
             self.assertTrue(checksums.is_file())
+            self.assertTrue(manifest.is_file())
+            release_manifest = json.loads(manifest.read_text(encoding="utf-8"))
+            self.assertEqual(release_manifest["schemaVersion"], 1)
+            self.assertEqual(release_manifest["version"], "0.5.2")
+            self.assertEqual(release_manifest["tag"], "v0.5.2")
+            self.assertEqual(release_manifest["archive"], archive.name)
+            self.assertEqual(
+                [entry["name"] for entry in release_manifest["files"]],
+                sorted(entry["name"] for entry in release_manifest["files"]),
+            )
             with ZipFile(archive) as package:
                 names = [item.filename for item in package.infolist()]
                 self.assertEqual(names, sorted(names))
@@ -65,7 +76,12 @@ class ReleasePackageTests(unittest.TestCase):
                 )
             checksum_line = checksums.read_text(encoding="utf-8").strip()
             digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-            self.assertEqual(checksum_line, f"{digest}  {archive.name}")
+            checksum_lines = checksums.read_text(encoding="ascii").splitlines()
+            self.assertEqual(checksum_lines[0], f"{digest}  {archive.name}")
+            self.assertEqual(
+                checksum_lines[1],
+                f"{hashlib.sha256(manifest.read_bytes()).hexdigest()}  {manifest.name}",
+            )
 
     def test_verify_rejects_malicious_members_before_extraction(self):
         with tempfile.TemporaryDirectory(prefix="release-malicious-") as temporary:

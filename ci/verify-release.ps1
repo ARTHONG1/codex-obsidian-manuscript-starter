@@ -4,6 +4,7 @@ param(
     [string]$Archive,
     [Parameter(Mandatory = $true)]
     [string]$Checksums,
+    [string]$Manifest = (Join-Path (Split-Path -Parent $Checksums) 'release-manifest.json'),
     [Parameter(Mandatory = $true)]
     [string]$TestRoot
 )
@@ -50,13 +51,21 @@ function Test-Privacy([string]$Path, [byte[]]$Bytes) {
 }
 if (-not (Test-Path -LiteralPath $Archive)) { Fail "archive is missing." }
 if (-not (Test-Path -LiteralPath $Checksums)) { Fail "checksums are missing." }
-$line = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $Checksums).Path)).Trim()
-if ($line -notmatch '^([0-9a-fA-F]{64})  (.+)$') { Fail "invalid SHA256SUMS format." }
+$lines = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $Checksums).Path)).Trim().Split("`n")
+if ($lines.Count -ne 2) { Fail "invalid SHA256SUMS format." }
+if ($lines[0] -notmatch '^([0-9a-fA-F]{64})  (.+)$') { Fail "invalid archive checksum line." }
 $expectedHash = $Matches[1].ToLowerInvariant()
 $expectedName = $Matches[2]
+if ($lines[1] -notmatch '^([0-9a-fA-F]{64})  release-manifest\.json$') { Fail "invalid manifest checksum line." }
+$expectedManifestHash = $Matches[1].ToLowerInvariant()
 if ([IO.Path]::GetFileName($Archive) -ne $expectedName) { Fail "checksum basename does not match archive." }
 $actualHash = Get-Sha256 (Resolve-Path -LiteralPath $Archive).Path
 if ($actualHash -ne $expectedHash) { Fail "archive checksum mismatch." }
+if (-not (Test-Path -LiteralPath $Manifest)) { Fail "release manifest is missing." }
+$manifestHash = Get-Sha256 (Resolve-Path -LiteralPath $Manifest).Path
+if ($manifestHash -ne $expectedManifestHash) { Fail "release manifest checksum mismatch." }
+$releaseManifest = Get-Content -Raw -LiteralPath $Manifest | ConvertFrom-Json
+if ([string]$releaseManifest.archive -ne $expectedName -or [string]$releaseManifest.archiveSha256 -ne $actualHash) { Fail "release manifest archive identity mismatch." }
 
 $patterns = @(
     ".agents/plugins/marketplace.json", ".github/workflows/windows-ci.yml", "bootstrap/**",
@@ -87,6 +96,8 @@ try {
         $members += $normalized
     }
 } finally { $zip = $null }
+$manifestNames = @($releaseManifest.files | ForEach-Object { [string]$_.name })
+if (($manifestNames -join "`n") -ne ($members -join "`n")) { Fail "release manifest file identity mismatch." }
 $sortedMembers = Sort-Ordinal $members
 if (($sortedMembers -join "`n") -ne ($members -join "`n")) { Fail "members are not sorted." }
 $required = @(

@@ -94,5 +94,23 @@ try {
     }
 } finally { $archive.Dispose() }
 $hash = Get-Sha256 $archivePath
-Set-Content -LiteralPath (Join-Path $output "SHA256SUMS") -Value "$hash  $([IO.Path]::GetFileName($archivePath))" -Encoding ASCII
+$commit = (& git -C $source rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or $commit -notmatch '^[0-9a-fA-F]{40}$') { Fail "unable to resolve immutable commit." }
+$remote = (& git -C $source config --get remote.origin.url).Trim()
+$repository = 'ARTHONG1/codex-obsidian-manuscript-starter'
+if ($remote -match 'github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$') { $repository = $Matches[1] }
+$fileEntries = @(
+    foreach ($relative in $candidates) {
+        [ordered]@{ name = (Normalize $relative); sha256 = (Get-Sha256 (Join-Path $source ($relative -replace '/', '\'))) }
+    }
+)
+$manifest = [ordered]@{
+    schemaVersion = 1; repository = $repository; version = $Version; tag = "v$Version"; commit = $commit
+    archive = [IO.Path]::GetFileName($archivePath); archiveSha256 = $hash; files = $fileEntries
+}
+$manifestPath = Join-Path $output 'release-manifest.json'
+$manifestJson = $manifest | ConvertTo-Json -Depth 6 -Compress
+[IO.File]::WriteAllText($manifestPath, $manifestJson, (New-Object Text.UTF8Encoding($false)))
+$manifestHash = Get-Sha256 $manifestPath
+Set-Content -LiteralPath (Join-Path $output "SHA256SUMS") -Value "$hash  $([IO.Path]::GetFileName($archivePath))`n$manifestHash  release-manifest.json" -Encoding ASCII
 Write-Output $archivePath
