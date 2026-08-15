@@ -22,6 +22,13 @@ import unicodedata
 from urllib.parse import quote
 import uuid
 
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except AttributeError:
+        pass
+
 validate_blog = None
 validate_manuscript = None
 book_v3 = None

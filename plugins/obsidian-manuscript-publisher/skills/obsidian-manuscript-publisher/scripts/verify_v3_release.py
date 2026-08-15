@@ -29,7 +29,7 @@ class SmokeFailure(RuntimeError):
 
 
 def _run_stage(stage: str, command: list[str]) -> None:
-    result = subprocess.run(command, capture_output=True, text=True)
+    result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if result.returncode != 0:
         raise SmokeFailure(stage)
 
@@ -88,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
         _run_stage("validation", [sys.executable, str(VALIDATOR), str(version / "manuscript.json"), str(version / "asset-manifest.json"), str(report)])
         _run_stage("render", [sys.executable, str(RENDERER), str(version / "manuscript.json"), str(version)])
         export_command = [sys.executable, str(EXPORTER), "--source-version-dir", str(version), "--publication-root", str(args.output / "Desktop" / "옵시디언 원고"), "--project-destination-root", "V3 Verification", "--vault-path", str(args.output / "Vault")]
-        result = subprocess.run(export_command, capture_output=True, text=True)
+        result = subprocess.run(export_command, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if result.returncode != 0:
             export_code = "export_failed"
             safe_export_codes = {
