@@ -5,6 +5,7 @@ bootstrap/**
 ci/action-lock.json
 ci/run-*.ps1
 ci/lib/**
+ci/generate-codex-skills-manifest.py
 ci/release-allowlist.txt
 dependencies.lock.json
 INSTALL_PROMPT.md
