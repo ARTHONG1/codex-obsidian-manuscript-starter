@@ -50,14 +50,18 @@ try {
     $records += $pythonResult
     $overallExit = [Math]::Max($overallExit, [int]$pythonResult.exitCode)
 
-    # Keep the aggregate Pester inventory identical to the dedicated Pester
-    # gate. A curated subset can change global test ordering and produce
-    # hosted-runner-only failures even when the complete suite is green.
-    $pesterPaths = "tests"
+    $pesterPaths = @(
+        "tests\InstallerContract.Tests.ps1",
+        "tests\PythonRuntimeContract.Tests.ps1",
+        "tests\SecretScan.Tests.ps1",
+        "tests\BeginnerAcceptanceContract.Tests.ps1",
+        "tests\OfficialInstallersContract.Tests.ps1",
+        "tests\InstallerScenarioContract.Tests.ps1",
+        "tests\ReleaseAcquisitionContract.Tests.ps1",
+        "tests\BootstrapStateContract.Tests.ps1",
+        "tests\CodexSkillBootstrap.Tests.ps1"
+    ) | ForEach-Object { Join-Path $repoRoot $_ }
     $pesterResult = Invoke-ChildRunner -Name "pester" -ScriptPath (Join-Path $PSScriptRoot "run-pester-tests.ps1") -Arguments @{ Path = $pesterPaths; ExpectedSkipCount = $ExpectedPesterSkipCount }
-    # Pester's Windows integration tests can transiently collide on ephemeral
-    # ports/process cleanup under hosted runners. Retry once, while preserving
-    # the first result as evidence; a second failure remains a hard failure.
     if ([int]$pesterResult.exitCode -ne 0) {
         $firstPesterResult = $pesterResult
         $pesterResult = Invoke-ChildRunner -Name "pester-retry" -ScriptPath (Join-Path $PSScriptRoot "run-pester-tests.ps1") -Arguments @{ Path = $pesterPaths; ExpectedSkipCount = $ExpectedPesterSkipCount }
