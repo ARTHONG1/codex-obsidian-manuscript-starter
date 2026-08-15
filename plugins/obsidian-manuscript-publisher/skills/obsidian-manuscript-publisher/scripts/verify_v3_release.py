@@ -100,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
                 "publication_lock_timeout",
             }
             try:
-                export_payload = json.loads(result.stdout)
+                export_payload = json.loads(result.stdout.lstrip("\ufeff"))
                 export_code = str(export_payload.get("code") or export_code)
             except (TypeError, ValueError):
                 combined_output = f"{result.stdout}\n{result.stderr}"

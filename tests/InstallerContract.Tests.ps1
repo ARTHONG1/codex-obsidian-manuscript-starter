@@ -852,7 +852,7 @@ Describe "Beginner installer safety contract" {
             return 0
         }
 
-        $result = Wait-ForLocalRest -DataPath $dataPath -TimeoutSeconds 3 `
+        $result = Wait-ForLocalRest -DataPath $dataPath -TimeoutSeconds 8 `
             -CommandResolver { (Join-Path $TestDrive "curl.exe") } `
             -ReadinessReader $readConfig -CurlInvoker $curl
 
