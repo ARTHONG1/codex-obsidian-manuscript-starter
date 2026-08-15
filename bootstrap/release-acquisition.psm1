@@ -12,6 +12,14 @@ function Test-ReleaseArchiveUrl([string]$ArchiveUrl) {
     $true
 }
 
+function Test-ReleaseAssetUrl {
+    param([Parameter(Mandatory=$true)][string]$Url, [Parameter(Mandatory=$true)][string]$Repository, [Parameter(Mandatory=$true)][string]$Tag)
+    $expected = "^https://github\.com/" + [regex]::Escape($Repository) + "/releases/download/" + [regex]::Escape($Tag) + "/[^/]+\.zip$"
+    if ($Url -notmatch $expected) { Fail-Release 'release_archive_identity_mismatch' }
+    Test-ReleaseArchiveUrl $Url | Out-Null
+    $true
+}
+
 function Test-ReleaseZipMemberNames([string[]]$Names) {
     $seen = @{}
     foreach ($name in $Names) {
@@ -52,7 +60,7 @@ function Resolve-GitObjectCommit {
         [Parameter(Mandatory=$true)][scriptblock]$ObjectResolver,
         [int]$MaxDepth = 4
     )
-    if ([string]$RefObject.ref -ne "refs/tags/$Tag") { Fail-Release 'release_tag_identity_mismatch' }
+    if ([string]$RefObject.ref -ne "refs/tags/$Tag" -or [string]$RefObject.url -notmatch ("/repos/" + [regex]::Escape($Repository) + "/git/refs/tags/" + [regex]::Escape($Tag) + "$") ) { Fail-Release 'release_tag_identity_mismatch' }
     $current = $RefObject
     $seen = @{}
     for ($depth = 0; $depth -le $MaxDepth; $depth++) {
@@ -67,7 +75,7 @@ function Resolve-GitObjectCommit {
         $seen[$sha] = $true
         if ($depth -ge $MaxDepth) { Fail-Release 'release_tag_depth_exceeded' }
         $next = & $ObjectResolver $sha
-        if (-not $next -or [string]$next.sha -ne $sha) { Fail-Release 'release_tag_target_invalid' }
+        if (-not $next -or [string]$next.sha -ne $sha -or [string]$next.url -notmatch ("/repos/" + [regex]::Escape($Repository) + "/git/tags/" + [regex]::Escape($sha) + "$") ) { Fail-Release 'release_tag_target_invalid' }
         $current = $next
     }
     Fail-Release 'release_tag_depth_exceeded'
@@ -104,7 +112,7 @@ function Resolve-StableRelease {
 
 function Get-VerifiedRelease {
     param([Parameter(Mandatory=$true)]$Release, [Parameter(Mandatory=$true)][string]$DownloadRoot)
-    Test-ReleaseArchiveUrl $Release.ArchiveUrl | Out-Null
+    Test-ReleaseAssetUrl -Url $Release.ArchiveUrl -Repository $Release.Repository -Tag $Release.Tag | Out-Null
     foreach ($metadataUrl in @($Release.ManifestUrl, $Release.ChecksumsUrl)) {
         if ([string]$metadataUrl -notmatch ("^https://github\.com/" + [regex]::Escape($Release.Repository) + "/releases/download/" + [regex]::Escape($Release.Tag) + "/")) { Fail-Release 'release_metadata_url_invalid' }
     }
@@ -133,7 +141,7 @@ function Get-VerifiedRelease {
         if ($manifestFiles.Count -ne $names.Count -or @($names | Where-Object { -not $manifestFiles.ContainsKey($_) }).Count -gt 0) { Fail-Release 'release_manifest_member_set_mismatch' }
         foreach ($entry in $zip.Entries) {
             $memory = New-Object IO.MemoryStream; $stream = $entry.Open(); try { $stream.CopyTo($memory) } finally { $stream.Dispose() }
-            $actual = ([BitConverter]::ToString(([Security.Cryptography.SHA256]::Create()).ComputeHash($memory.ToArray())) -replace '-', '').ToLowerInvariant(); $memory.Dispose()
+            $hash = [Security.Cryptography.SHA256]::Create(); try { $actual = ([BitConverter]::ToString($hash.ComputeHash($memory.ToArray())) -replace '-', '').ToLowerInvariant() } finally { $hash.Dispose(); $memory.Dispose() }
             if (-not $manifestFiles.ContainsKey($entry.FullName) -or $manifestFiles[$entry.FullName] -ne $actual) { Fail-Release 'release_file_checksum_mismatch' }
         }
     } finally { $zip.Dispose() }
@@ -142,4 +150,4 @@ function Get-VerifiedRelease {
     [pscustomobject]@{ ReleaseRoot=$root; Archive=$archive; Manifest=$manifestPath }
 }
 
-Export-ModuleMember -Function Resolve-StableRelease, Get-VerifiedRelease, Test-ReleaseManifest, Test-ReleaseArchiveUrl, Test-ReleaseZipMemberNames, Resolve-GitObjectCommit
+Export-ModuleMember -Function Resolve-StableRelease, Get-VerifiedRelease, Test-ReleaseManifest, Test-ReleaseArchiveUrl, Test-ReleaseAssetUrl, Test-ReleaseZipMemberNames, Resolve-GitObjectCommit

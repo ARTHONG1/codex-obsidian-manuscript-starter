@@ -95,7 +95,7 @@ try {
         $bytesByName[$normalized.ToLowerInvariant()] = $bytes
         $members += $normalized
     }
-} finally { $zip = $null }
+} finally { if ($zip) { $zip.Dispose() }; $zip = $null }
 $manifestNames = @($releaseManifest.files | ForEach-Object { [string]$_.name })
 if (($manifestNames -join "`n") -ne ($members -join "`n")) { Fail "release manifest file identity mismatch." }
 $manifestHashes = @{}
@@ -105,7 +105,7 @@ foreach ($file in @($releaseManifest.files)) {
 }
 foreach ($member in $members) {
     if (-not $manifestHashes.ContainsKey($member)) { Fail "manifest is missing ZIP member: $member" }
-    $actualMemberHash = ([BitConverter]::ToString(([Security.Cryptography.SHA256]::Create()).ComputeHash($bytesByName[$member.ToLowerInvariant()])) -replace '-', '').ToLowerInvariant()
+    $memberHash = [Security.Cryptography.SHA256]::Create(); try { $actualMemberHash = ([BitConverter]::ToString($memberHash.ComputeHash($bytesByName[$member.ToLowerInvariant()])) -replace '-', '').ToLowerInvariant() } finally { $memberHash.Dispose() }
     if ($actualMemberHash -ne $manifestHashes[$member]) { Fail "release member checksum mismatch: $member" }
 }
 $sortedMembers = Sort-Ordinal $members
