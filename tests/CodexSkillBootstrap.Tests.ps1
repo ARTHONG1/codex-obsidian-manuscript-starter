@@ -2,7 +2,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $modulePath = Join-Path $repoRoot "bootstrap\lib\CodexSkills.psm1"
 
 function New-SkillFixture {
-    param([string]$Root, [bool]$FailSecondPromotion = $false)
+    param([string]$Root)
     $sourceRoot = Join-Path $Root "release"
     $skillsRoot = Join-Path $Root "codex-skills"
     $setup = Join-Path $sourceRoot "setup"
@@ -34,7 +34,6 @@ function New-SkillFixture {
     }
     $manifestPath = Join-Path $sourceRoot "codex-skills-manifest.json"
     $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
-    if ($FailSecondPromotion) { Set-Content -LiteralPath (Join-Path $sourceRoot "fail-second-promotion.flag") -Value "1" -Encoding UTF8 }
     [pscustomobject]@{ SourceRoot = $sourceRoot; SkillsRoot = $skillsRoot; ManifestPath = $manifestPath }
 }
 
@@ -76,8 +75,21 @@ Describe "Codex skill pair bootstrap contract" {
         Set-Content -LiteralPath (Join-Path $fixture.SkillsRoot "obsidian-manuscript-setup\SKILL.md") -Value "old-setup" -Encoding UTF8
         Set-Content -LiteralPath (Join-Path $fixture.SkillsRoot "obsidian-manuscript-publisher\SKILL.md") -Value "old-publisher" -Encoding UTF8
         Set-Content -LiteralPath (Join-Path $fixture.SkillsRoot "obsidian-manuscript-publisher\references.md") -Value "old-reference" -Encoding UTF8
-        { Install-VerifiedCodexSkillPair -ReleaseRoot $fixture.SourceRoot -CodexSkillsRoot $fixture.SkillsRoot -ManifestPath $fixture.ManifestPath -TestFailureAfterFirstPromotion } | Should Throw
+        $promotionCount = Join-Path $fixture.SourceRoot "promotion-count.txt"
+        $promotion = {
+            param($source, $destination)
+            $count = if (Test-Path -LiteralPath $promotionCount) { [int](Get-Content -Raw -LiteralPath $promotionCount) } else { 0 }
+            if ($count -eq 1) { throw "synthetic promotion failure" }
+            Set-Content -LiteralPath $promotionCount -Value ($count + 1) -Encoding UTF8
+            Move-Item -LiteralPath $source -Destination $destination
+        }.GetNewClosure()
+        { Install-VerifiedCodexSkillPair -ReleaseRoot $fixture.SourceRoot -CodexSkillsRoot $fixture.SkillsRoot -ManifestPath $fixture.ManifestPath -PromotionAction $promotion } | Should Throw
         (Get-Content -Raw -LiteralPath (Join-Path $fixture.SkillsRoot "obsidian-manuscript-setup\SKILL.md")) | Should Match "old-setup"
         (Get-Content -Raw -LiteralPath (Join-Path $fixture.SkillsRoot "obsidian-manuscript-publisher\SKILL.md")) | Should Match "old-publisher"
+    }
+
+    It "does not expose a test-only promotion switch" {
+        $script:moduleAvailable | Should Be $true
+        (Get-Command Install-VerifiedCodexSkillPair).Parameters.ContainsKey("TestFailureAfterFirstPromotion") | Should Be $false
     }
 }

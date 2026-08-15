@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "installers": [
+    {
+      "id": "python-3.12.10-x64",
+      "product": "python",
+      "version": "3.12.10",
+      "architecture": "x64",
+      "url": "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe",
+      "sha256": "67b5635e80ea51072b87941312d00ec8927c4db9ba18938f7ad2d27b328b95fb",
+      "signerSubjectContains": "Python Software Foundation",
+      "arguments": ["/quiet", "InstallAllUsers=0", "PrependPath=0", "Include_test=0"]
+    },
+    {
+      "id": "obsidian-1.13.7-x64",
+      "product": "obsidian",
+      "version": "1.13.7",
+      "architecture": "x64",
+      "url": "https://github.com/obsidianmd/obsidian-releases/releases/download/v1.13.7/Obsidian-1.13.7.exe",
+      "sha256": "f233dc24896b3f2d5f9e4b01111181a561d0760b2105f0a474024c5f3143a9bc",
+      "signerSubjectContains": "Dynalist Inc",
+      "arguments": ["/S"]
+    }
+  ]
+}

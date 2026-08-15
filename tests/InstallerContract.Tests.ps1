@@ -190,9 +190,11 @@ Describe "Beginner installer safety contract" {
             (Join-Path $repoRoot "plugins\obsidian-manuscript-publisher\bootstrap")
         )) {
             $installer = Get-Content -Raw -LiteralPath (Join-Path $bootstrapRoot "install-windows.ps1") -Encoding UTF8
-            foreach ($stage in @("preflight", "base_python_ready", "venv_ready", "dependencies_ready", "vault_ready", "local_rest_ready", "runtime_ready", "ready")) {
+            foreach ($stage in @("preflight", "base_python_ready", "venv_ready", "dependencies_ready", "vault_ready", "local_rest_ready", "runtime_ready")) {
                 $installer | Should Match ([regex]::Escape("Set-InstallStage -RuntimeRoot `$paths.RuntimeRoot -Stage `"$stage`""))
             }
+            $installer | Should Not Match ([regex]::Escape('Set-InstallStage -RuntimeRoot $paths.RuntimeRoot -Stage "ready"'))
+            $installer | Should Match 'Update-BeginnerBootstrapState\s+-Stage\s+"runtime_ready"'
             $installer | Should Match 'New-VerifiedManagedVenv\s+-BasePython\s+\$base\.Python'
             $installer | Should Match 'Save-RuntimeConfig\s+-Paths\s+\$paths\s+-PythonRuntime\s+\$managed'
             $installer | Should Not Match 'Test-PythonRuntime\s+-PythonPath'
@@ -283,7 +285,7 @@ Describe "Beginner installer safety contract" {
     It "ships the exact same bootstrap files inside the installable plugin" {
         $pluginBootstrap = Join-Path $repoRoot "plugins\obsidian-manuscript-publisher\bootstrap"
         Test-Path (Join-Path $repoRoot "plugins\obsidian-manuscript-publisher\skills\obsidian-manuscript-setup\SKILL.md") | Should Be $true
-        foreach ($file in @("install-windows.ps1", "install-codex-skills.ps1", "doctor.ps1", "uninstall.ps1", "codex-skills-manifest.json", "dependencies.lock.json", "lib\BootstrapState.psm1", "lib\CodexSkills.psm1", "lib\Environment.psm1", "lib\Vault.psm1", "lib\LocalRest.psm1", "lib\PublicationLibrary.psm1", "lib\PythonRuntime.psm1")) {
+        foreach ($file in @("install-windows.ps1", "install-codex-skills.ps1", "doctor.ps1", "uninstall.ps1", "codex-skills-manifest.json", "publisher-manifest.json", "dependencies.lock.json", "official-installers.lock.json", "lib\BootstrapState.psm1", "lib\CodexSkills.psm1", "lib\OfficialInstallers.psm1", "lib\Environment.psm1", "lib\Vault.psm1", "lib\LocalRest.psm1", "lib\PublicationLibrary.psm1", "lib\PythonRuntime.psm1")) {
             (Get-FileHash -LiteralPath (Join-Path $repoRoot ("bootstrap\" + $file)) -Algorithm SHA256).Hash | Should Be (Get-FileHash -LiteralPath (Join-Path $pluginBootstrap $file) -Algorithm SHA256).Hash
         }
     }

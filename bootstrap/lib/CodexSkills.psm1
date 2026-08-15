@@ -76,7 +76,7 @@ function Install-VerifiedCodexSkillPair {
         [Parameter(Mandatory = $true)][string]$ReleaseRoot,
         [Parameter(Mandatory = $true)][string]$CodexSkillsRoot,
         [Parameter(Mandatory = $true)][string]$ManifestPath,
-        [switch]$TestFailureAfterFirstPromotion
+        [scriptblock]$PromotionAction
     )
     $verification = Test-CodexSkillSource -ReleaseRoot $ReleaseRoot -ManifestPath $ManifestPath
     if (-not $verification.Valid) { throw (($verification.Errors -join '; ')) }
@@ -87,6 +87,9 @@ function Install-VerifiedCodexSkillPair {
     $backupRoot = Join-Path $CodexSkillsRoot ('.codex-skills-backup-' + $transactionId)
     $promoted = @()
     $backups = @{}
+    $promote = if ($PromotionAction) { $PromotionAction } else {
+        { param($source, $destination) Move-Item -LiteralPath $source -Destination $destination }
+    }
     try {
         New-Item -ItemType Directory -Path $stageRoot, $backupRoot -Force | Out-Null
         foreach ($skill in @($verification.Skills)) {
@@ -105,10 +108,9 @@ function Install-VerifiedCodexSkillPair {
         $index = 0
         foreach ($skill in @($verification.Skills)) {
             $destination = Join-Path $CodexSkillsRoot ([string]$skill.destination)
-            Move-Item -LiteralPath (Join-Path $stageRoot ([string]$skill.destination)) -Destination $destination
+            & $promote (Join-Path $stageRoot ([string]$skill.destination)) $destination
             $promoted += $destination
             $index++
-            if ($TestFailureAfterFirstPromotion -and $index -eq 1) { throw "synthetic promotion failure" }
         }
         [pscustomobject]@{ Status = 'installed'; TransactionId = $transactionId; SkillIds = @($verification.Skills | ForEach-Object id) }
     } catch {
@@ -125,4 +127,25 @@ function Install-VerifiedCodexSkillPair {
     }
 }
 
-Export-ModuleMember -Function Test-CodexSkillSource, Install-VerifiedCodexSkillPair
+function Test-CodexSkillInstallation {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$CodexSkillsRoot,
+        [Parameter(Mandatory = $true)][string]$ManifestPath
+    )
+    $manifest = Read-CodexSkillManifest -ManifestPath $ManifestPath
+    $errors = @()
+    foreach ($skill in @($manifest.skills)) {
+        $destinationRoot = Join-Path $CodexSkillsRoot ([string]$skill.destination)
+        if (-not (Test-NoReparseAncestor -Path $destinationRoot)) { $errors += "$($skill.id): unsafe destination"; continue }
+        foreach ($member in @($skill.files)) {
+            $path = Join-Path $destinationRoot ([string]$member.path)
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { $errors += "$($skill.id): missing $($member.path)"; continue }
+            $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLowerInvariant()
+            if ($actual -ne ([string]$member.sha256).ToLowerInvariant()) { $errors += "$($skill.id): hash mismatch $($member.path)" }
+        }
+    }
+    [pscustomobject]@{ Valid = (@($errors).Count -eq 0); Errors = @($errors) }
+}
+
+Export-ModuleMember -Function Test-CodexSkillSource, Test-CodexSkillInstallation, Install-VerifiedCodexSkillPair
