@@ -26,12 +26,9 @@ $resultPath = Join-Path ([IO.Path]::GetTempPath()) ("pester-result-" + [guid]::N
 $pathListPath = Join-Path ([IO.Path]::GetTempPath()) ("pester-paths-" + [guid]::NewGuid().ToString("N") + ".json")
 try {
     @($expandedPaths) | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $pathListPath -Encoding UTF8
-    $arguments = @(
-        "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-        (Join-Path $PSScriptRoot "invoke-pester-owned.ps1"),
-        "-ExpectedSkipCount", $ExpectedSkipCount, "-ResultPath", $resultPath, "-PathListPath", $pathListPath
-    )
-    & C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe @arguments 2>&1 | ForEach-Object { $_ }
+    $invokeScript = Join-Path $PSScriptRoot "invoke-pester-owned.ps1"
+    $command = "& '$invokeScript' -ExpectedSkipCount $ExpectedSkipCount -ResultPath '$resultPath' -PathListPath '$pathListPath'"
+    & C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -Command $command 2>&1 | ForEach-Object { $_ }
     $processExit = $LASTEXITCODE
     if (-not (Test-Path -LiteralPath $resultPath)) { throw "Pester runner did not write a result summary." }
     $summary = Get-Content -Raw -LiteralPath $resultPath | ConvertFrom-Json
@@ -48,3 +45,4 @@ try {
     Remove-Item -LiteralPath $resultPath -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $pathListPath -Force -ErrorAction SilentlyContinue
 }
+
