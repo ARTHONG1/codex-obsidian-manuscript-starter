@@ -106,6 +106,11 @@ class CiContractTests(unittest.TestCase):
         self.assertIn("needs: [contracts, installer, python, pester, acceptance-contract, aggregate]", workflow)
         self.assertIn("test-evidence.json", workflow)
 
+    def test_github_runner_uses_environment_specific_python_skip_contract(self):
+        workflow = read_workflow()
+        self.assertIn("-ExpectedSkipCount 1", workflow)
+        self.assertIn("-ExpectedPythonSkipCount 1", workflow)
+
     def test_skill_manifest_generator_excludes_generated_python_bytecode(self):
         generator = ROOT / "ci" / "generate-codex-skills-manifest.py"
         text = generator.read_text(encoding="utf-8")

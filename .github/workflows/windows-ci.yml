@@ -77,7 +77,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Full Python suite
         shell: pwsh
-        run: .\ci\run-python-tests.ps1 -PythonPath (Get-Command python).Source -ExpectedSkipCount 4
+        run: .\ci\run-python-tests.ps1 -PythonPath (Get-Command python).Source -ExpectedSkipCount 1
 
   pester:
     runs-on: windows-latest
@@ -110,7 +110,7 @@ jobs:
       - name: Run owned aggregate evidence gate
         shell: pwsh
         run: |
-          & .\ci\run-all-tests.ps1 -PythonPath (Get-Command python).Source -ExpectedPythonSkipCount 4 -ExpectedPesterSkipCount 0
+          & .\ci\run-all-tests.ps1 -PythonPath (Get-Command python).Source -ExpectedPythonSkipCount 1 -ExpectedPesterSkipCount 0
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
