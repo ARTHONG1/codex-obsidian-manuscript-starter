@@ -184,10 +184,12 @@ function Invoke-OwnedProcess {
         if (-not $completed) {
             $entry.status = 'timed_out'
             [CodexOwnedProcess.Native]::Terminate($Run.jobHandle, 124)
-            $process.WaitForExit(5000) | Out-Null
+            $process.WaitForExit(2000) | Out-Null
             $entry.status = 'terminated'
-            [IO.File]::WriteAllText($stdoutPath, $stdoutTask.Result, [Text.Encoding]::UTF8)
-            [IO.File]::WriteAllText($stderrPath, $stderrTask.Result, [Text.Encoding]::UTF8)
+            $outText = if ($stdoutTask.AsyncWaitHandle.WaitOne(1000)) { $stdoutTask.Result } else { "" }
+            $errText = if ($stderrTask.AsyncWaitHandle.WaitOne(1000)) { $stderrTask.Result } else { "" }
+            [IO.File]::WriteAllText($stdoutPath, $outText, [Text.Encoding]::UTF8)
+            [IO.File]::WriteAllText($stderrPath, $errText, [Text.Encoding]::UTF8)
             Write-OwnedLedger -Run $Run
             return [pscustomobject]@{ name = $Name; rootPid = $process.Id; exitCode = 124; timedOut = $true; durationMs = ([int]([DateTime]::UtcNow - $started).TotalMilliseconds); stdoutPath = $stdoutPath; stderrPath = $stderrPath; operationalFailure = $false }
         }
@@ -231,4 +233,5 @@ function Close-OwnedProcessRun {
 }
 
 Export-ModuleMember -Function New-OwnedProcessRun, Invoke-OwnedProcess, Test-RunOwnedPidAlive, Close-OwnedProcessRun
+
 
