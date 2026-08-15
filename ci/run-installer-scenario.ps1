@@ -44,6 +44,7 @@ function New-VerifiedManagedVenv {
     $reused = Test-Path -LiteralPath $marker -PathType Leaf
     New-Item -ItemType Directory -Path (Join-Path $venvRoot "Scripts") -Force | Out-Null
     if (-not $reused) { Set-Content -LiteralPath $marker -Value $env:INSTALLER_SCENARIO -Encoding UTF8 }
+    [ordered]@{ Status = "venv_ready"; Reused = $reused } | ConvertTo-Json | Set-Content -LiteralPath $env:SCENARIO_RESULT_PATH -Encoding UTF8
     [pscustomobject]@{ Ready = $true; BasePython = $BasePython; Python = (Join-Path $venvRoot "Scripts\python.exe"); VenvRoot = $venvRoot; RequirementsHash = ("a" * 64); Reused = $reused; Backup = $null }
 }
 function Test-ManagedPythonRuntime { param([string]$PythonPath, [string]$RequirementsHash, [string]$ProbePath); [pscustomobject]@{ Ready = $true; Reason = "ready"; Python = $PythonPath; RequirementsHash = $RequirementsHash } }
@@ -60,9 +61,11 @@ Export-ModuleMember -Function Install-PinnedLocalRestPlugin, Test-PinnedLocalRes
 '@
     Set-Content -LiteralPath (Join-Path $scenarioBootstrap "lib\LocalRest.psm1") -Value $fakeRest -Encoding UTF8
 
+    $preStage = $null
     if ($Scenario -eq "restart_resume") {
         New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
         [ordered]@{ stage = "venv_ready" } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $runtimeRoot "install-stage.json") -Encoding UTF8
+        $preStage = "venv_ready"
     }
 
     # The scenario is deliberately an orchestration concern. Production install-windows.ps1
@@ -85,9 +88,10 @@ Export-ModuleMember -Function Install-PinnedLocalRestPlugin, Test-PinnedLocalRes
     } else { $null }
     [pscustomobject]@{
         Scenario = $Scenario
-        Status = if ($resultObject -and $resultObject.Status) { $resultObject.Status } elseif ($evidence) { $evidence.Status } elseif ($Scenario -eq "python312_ready" -and $stage -eq "dependencies_ready") { "community_plugin_consent_required" } else { "unknown" }
+        Status = if ($resultObject -and $resultObject.Status) { $resultObject.Status } elseif ($Scenario -eq "python312_ready" -and $stage -eq "dependencies_ready") { "community_plugin_consent_required" } elseif ($Scenario -eq "restart_resume" -and $preStage -eq "venv_ready" -and $stage -eq "dependencies_ready") { "resumed_to_dependencies_ready" } elseif ($evidence) { $evidence.Status } else { "unknown" }
         Stage = $stage
-        VenvReused = ($Scenario -eq "venv_reuse" -and (Test-Path -LiteralPath (Join-Path $runtimeRoot "venv\scenario.txt")))
+        VenvReused = ($Scenario -eq "venv_reuse" -and $evidence -and $evidence.Reused -eq $true -and (Get-Content -Raw -LiteralPath (Join-Path $runtimeRoot "venv\scenario.txt")).Trim() -eq "pre-existing")
+        RestartResumed = ($Scenario -eq "restart_resume" -and $preStage -eq "venv_ready" -and $stage -eq "dependencies_ready")
         CallerRootPreserved = $rootWasSupplied
     } | ConvertTo-Json -Compress
 }

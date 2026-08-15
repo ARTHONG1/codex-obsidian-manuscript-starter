@@ -72,4 +72,11 @@ Describe "Installer scenario runner contract" {
         $json = ($result | Select-Object -Last 1 | ConvertFrom-Json)
         $json.VenvReused | Should Be $true
     }
+
+    It "proves restart resume advances the persisted stage" {
+        $result = & pwsh -NoProfile -File $runnerPath -Scenario restart_resume
+        $json = ($result | Select-Object -Last 1 | ConvertFrom-Json)
+        $json.Status | Should Be "resumed_to_dependencies_ready"
+        $json.RestartResumed | Should Be $true
+    }
 }
