@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -106,7 +107,11 @@ def main(argv: list[str] | None = None) -> int:
                 combined_output = f"{result.stdout}\n{result.stderr}"
                 export_code = next((code for code in safe_export_codes if code in combined_output), export_code)
                 if export_code == "export_failed":
-                    export_code = f"export_process_exit_{abs(int(result.returncode))}"
+                    exception_names = re.findall(r"\\b([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception))\\b", result.stderr)
+                    if exception_names:
+                        export_code = f"export_exception_{exception_names[-1]}"
+                    else:
+                        export_code = f"export_process_exit_{abs(int(result.returncode))}"
             raise SmokeFailure("export", export_code)
         payload = json.loads(result.stdout)
         if payload.get("status") not in {"exported", "already_exported"}:
