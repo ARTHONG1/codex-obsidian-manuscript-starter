@@ -40,7 +40,9 @@ function Invoke-ChildRunner {
     $summary = if ($jsonLine) { try { $jsonLine | ConvertFrom-Json } catch { $null } } else { $null }
     if (-not $summary) {
         $stderr = if (Test-Path -LiteralPath $child.stderrPath) { (Get-Content -Raw -LiteralPath $child.stderrPath -Encoding UTF8).Trim() } else { "" }
-        $summary = [ordered]@{ runner = $Name; operationalFailure = $true; timedOut = [bool]$child.timedOut; message = if ($child.operationalFailure) { $child.message } elseif ($stderr) { $stderr } else { "runner did not emit a JSON summary" } }
+        $stdout = if (Test-Path -LiteralPath $child.stdoutPath) { (Get-Content -Raw -LiteralPath $child.stdoutPath -Encoding UTF8).Trim() } else { "" }
+        $msg = if ($child.operationalFailure) { $child.message } elseif ($stderr) { $stderr } elseif ($stdout) { $stdout } else { "runner did not emit a JSON summary" }
+        $summary = [ordered]@{ runner = $Name; operationalFailure = $true; timedOut = [bool]$child.timedOut; message = $msg }
     }
     [pscustomobject]@{ runner = $Name; exitCode = [int]$child.exitCode; timedOut = [bool]$child.timedOut; counts = $summary }
 }
@@ -74,6 +76,7 @@ try {
     foreach ($pPath in $pesterPaths) {
         $pName = "pester-" + (Split-Path -LeafBase $pPath)
         $pRes = Invoke-ChildRunner -Name $pName -ScriptPath (Join-Path $PSScriptRoot "run-pester-tests.ps1") -Arguments @{ Path = $pPath; ExpectedSkipCount = 0 }
+        $records += $pRes
         if ($pRes.exitCode -ne 0) {
             $pesterSuccess = $false
             $pesterExit = [Math]::Max($pesterExit, [int]$pRes.exitCode)
@@ -88,23 +91,6 @@ try {
         }
     }
 
-    $pesterSummary = [ordered]@{
-        TotalCount = $pesterTotal
-        PassedCount = $pesterPassed
-        FailedCount = $pesterFailed
-        SkippedCount = $pesterSkipped
-        PendingCount = $pesterPending
-        InconclusiveCount = $pesterInconclusive
-        Successful = ($pesterSuccess -and $pesterFailed -eq 0 -and $pesterSkipped -eq $ExpectedPesterSkipCount)
-    }
-
-    $records += [pscustomobject]@{
-        runner = "pester"
-        exitCode = $pesterExit
-        timedOut = $false
-        counts = $pesterSummary
-        attempts = 1
-    }
     $overallExit = [Math]::Max($overallExit, $pesterExit)
 } catch {
     $overallExit = 1
