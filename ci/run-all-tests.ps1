@@ -38,11 +38,14 @@ function Invoke-ChildRunner {
         @(Get-Content -LiteralPath $child.stdoutPath -Encoding UTF8 | Where-Object { $_ -match '^\s*\{' } | Select-Object -Last 1)
     } else { @() }
     $summary = if ($jsonLine) { try { $jsonLine | ConvertFrom-Json } catch { $null } } else { $null }
+    $stdout = if (Test-Path -LiteralPath $child.stdoutPath) { (Get-Content -Raw -LiteralPath $child.stdoutPath -Encoding UTF8).Trim() } else { "" }
+    $stderr = if (Test-Path -LiteralPath $child.stderrPath) { (Get-Content -Raw -LiteralPath $child.stderrPath -Encoding UTF8).Trim() } else { "" }
     if (-not $summary) {
-        $stderr = if (Test-Path -LiteralPath $child.stderrPath) { (Get-Content -Raw -LiteralPath $child.stderrPath -Encoding UTF8).Trim() } else { "" }
-        $stdout = if (Test-Path -LiteralPath $child.stdoutPath) { (Get-Content -Raw -LiteralPath $child.stdoutPath -Encoding UTF8).Trim() } else { "" }
         $msg = if ($child.operationalFailure) { $child.message } elseif ($stderr) { $stderr } elseif ($stdout) { $stdout } else { "runner did not emit a JSON summary" }
         $summary = [ordered]@{ runner = $Name; operationalFailure = $true; timedOut = [bool]$child.timedOut; message = $msg }
+    } elseif ([int]$child.exitCode -ne 0) {
+        $failedLines = @($stdout -split "`r?`n" | Where-Object { $_ -match '^s*[-]' -or $_ -match 'Expected:' -or $_ -match 'at <ScriptBlock>' } | Select-Object -First 20)
+        $summary | Add-Member -NotePropertyName failures -NotePropertyValue $failedLines -Force -ErrorAction SilentlyContinue
     }
     [pscustomobject]@{ runner = $Name; exitCode = [int]$child.exitCode; timedOut = [bool]$child.timedOut; counts = $summary }
 }
@@ -64,34 +67,14 @@ try {
         "tests\CodexSkillBootstrap.Tests.ps1"
     ) | ForEach-Object { Join-Path $repoRoot $_ }
 
-    $pesterTotal = 0
-    $pesterPassed = 0
-    $pesterFailed = 0
-    $pesterSkipped = 0
-    $pesterPending = 0
-    $pesterInconclusive = 0
-    $pesterSuccess = $true
-    $pesterExit = 0
-
     foreach ($pPath in $pesterPaths) {
         $pName = "pester-" + (Split-Path -LeafBase $pPath)
         $pRes = Invoke-ChildRunner -Name $pName -ScriptPath (Join-Path $PSScriptRoot "run-pester-tests.ps1") -Arguments @{ Path = $pPath; ExpectedSkipCount = 0 }
         $records += $pRes
         if ($pRes.exitCode -ne 0) {
-            $pesterSuccess = $false
-            $pesterExit = [Math]::Max($pesterExit, [int]$pRes.exitCode)
-        }
-        if ($pRes.counts) {
-            $pesterTotal += [int]$pRes.counts.TotalCount
-            $pesterPassed += [int]$pRes.counts.PassedCount
-            $pesterFailed += [int]$pRes.counts.FailedCount
-            $pesterSkipped += [int]$pRes.counts.SkippedCount
-            $pesterPending += [int]$pRes.counts.PendingCount
-            $pesterInconclusive += [int]$pRes.counts.InconclusiveCount
+            $overallExit = [Math]::Max($overallExit, [int]$pRes.exitCode)
         }
     }
-
-    $overallExit = [Math]::Max($overallExit, $pesterExit)
 } catch {
     $overallExit = 1
     $records += [pscustomobject]@{ runner = "aggregate"; exitCode = 1; timedOut = $false; counts = [ordered]@{ operationalFailure = $true; message = $_.Exception.Message } }
