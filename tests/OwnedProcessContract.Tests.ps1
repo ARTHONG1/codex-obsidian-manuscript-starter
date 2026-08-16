@@ -3,11 +3,22 @@ $ownedProcessModule = Join-Path $repoRoot "ci\lib\OwnedProcess.psm1"
 
 Describe "Owned process runner contract" {
     BeforeAll {
-        $runRoot = Join-Path $TestDrive "owned-run"
+        $runRoot = Join-Path ([IO.Path]::GetTempPath()) ("owned-test-" + [guid]::NewGuid().ToString("N"))
         New-Item -ItemType Directory -Path $runRoot -Force | Out-Null
         $script:ownedModuleAvailable = Test-Path -LiteralPath $ownedProcessModule
         if ($script:ownedModuleAvailable) {
             Import-Module $ownedProcessModule -Force
+        }
+    }
+
+    AfterAll {
+        Start-Sleep -Milliseconds 300
+        [GC]::Collect()
+        [GC]::WaitForPendingFinalizers()
+        if ($runRoot -and (Test-Path -LiteralPath $runRoot)) {
+            for ($i = 0; $i -lt 5; $i++) {
+                try { Remove-Item -LiteralPath $runRoot -Recurse -Force -ErrorAction Stop; break } catch { Start-Sleep -Milliseconds 200 }
+            }
         }
     }
 
@@ -74,4 +85,5 @@ Describe "Owned process runner contract" {
         }
     }
 }
+
 
