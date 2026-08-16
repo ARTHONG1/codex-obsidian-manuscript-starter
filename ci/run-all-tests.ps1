@@ -50,10 +50,21 @@ try {
     $records += $pythonResult
     $overallExit = [Math]::Max($overallExit, [int]$pythonResult.exitCode)
 
-    $pesterResult = Invoke-ChildRunner -Name "pester" -ScriptPath (Join-Path $PSScriptRoot "run-pester-tests.ps1") -Arguments @{ Path = "tests"; ExpectedSkipCount = $ExpectedPesterSkipCount }
+    $pesterPaths = @(
+        "tests\InstallerContract.Tests.ps1",
+        "tests\PythonRuntimeContract.Tests.ps1",
+        "tests\SecretScan.Tests.ps1",
+        "tests\BeginnerAcceptanceContract.Tests.ps1",
+        "tests\OfficialInstallersContract.Tests.ps1",
+        "tests\InstallerScenarioContract.Tests.ps1",
+        "tests\ReleaseAcquisitionContract.Tests.ps1",
+        "tests\BootstrapStateContract.Tests.ps1",
+        "tests\CodexSkillBootstrap.Tests.ps1"
+    ) | ForEach-Object { Join-Path $repoRoot $_ }
+    $pesterResult = Invoke-ChildRunner -Name "pester" -ScriptPath (Join-Path $PSScriptRoot "run-pester-tests.ps1") -Arguments @{ Path = $pesterPaths; ExpectedSkipCount = $ExpectedPesterSkipCount }
     if ([int]$pesterResult.exitCode -ne 0) {
         $firstPesterResult = $pesterResult
-        $pesterResult = Invoke-ChildRunner -Name "pester-retry" -ScriptPath (Join-Path $PSScriptRoot "run-pester-tests.ps1") -Arguments @{ Path = "tests"; ExpectedSkipCount = $ExpectedPesterSkipCount }
+        $pesterResult = Invoke-ChildRunner -Name "pester-retry" -ScriptPath (Join-Path $PSScriptRoot "run-pester-tests.ps1") -Arguments @{ Path = $pesterPaths; ExpectedSkipCount = $ExpectedPesterSkipCount }
         $pesterResult | Add-Member -NotePropertyName attempts -NotePropertyValue 2
         $pesterResult | Add-Member -NotePropertyName firstAttemptExitCode -NotePropertyValue ([int]$firstPesterResult.exitCode)
         $pesterResult | Add-Member -NotePropertyName firstAttemptCounts -NotePropertyValue $firstPesterResult.counts

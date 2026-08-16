@@ -8,17 +8,20 @@ param(
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path $PSScriptRoot\..).Path
 $expandedPaths = @()
-foreach ($p in $Path) {
-    $full = if (Test-Path -LiteralPath $p) { (Resolve-Path -LiteralPath $p).Path } else { Join-Path $repoRoot $p }
-    if (Test-Path -LiteralPath $full) {
-        $item = Get-Item -LiteralPath $full
-        if ($item.PSIsContainer) {
-            $expandedPaths += Get-ChildItem -LiteralPath $item.FullName -Filter "*.Tests.ps1" -File | Select-Object -ExpandProperty FullName
+foreach ($entry in $Path) {
+    $subPaths = @($entry -split "," | Where-Object { $_ -and $_.Trim() } | ForEach-Object { $_.Trim() })
+    foreach ($p in $subPaths) {
+        $full = if (Test-Path -LiteralPath $p) { (Resolve-Path -LiteralPath $p).Path } else { Join-Path $repoRoot $p }
+        if (Test-Path -LiteralPath $full) {
+            $item = Get-Item -LiteralPath $full
+            if ($item.PSIsContainer) {
+                $expandedPaths += Get-ChildItem -LiteralPath $item.FullName -Filter "*.Tests.ps1" -File | Select-Object -ExpandProperty FullName
+            } else {
+                $expandedPaths += $item.FullName
+            }
         } else {
-            $expandedPaths += $item.FullName
+            $expandedPaths += $p
         }
-    } else {
-        $expandedPaths += $p
     }
 }
 
