@@ -61,18 +61,51 @@ try {
         "tests\BootstrapStateContract.Tests.ps1",
         "tests\CodexSkillBootstrap.Tests.ps1"
     ) | ForEach-Object { Join-Path $repoRoot $_ }
-    $pesterResult = Invoke-ChildRunner -Name "pester" -ScriptPath (Join-Path $PSScriptRoot "run-pester-tests.ps1") -Arguments @{ Path = $pesterPaths; ExpectedSkipCount = $ExpectedPesterSkipCount }
-    if ([int]$pesterResult.exitCode -ne 0) {
-        $firstPesterResult = $pesterResult
-        $pesterResult = Invoke-ChildRunner -Name "pester-retry" -ScriptPath (Join-Path $PSScriptRoot "run-pester-tests.ps1") -Arguments @{ Path = $pesterPaths; ExpectedSkipCount = $ExpectedPesterSkipCount }
-        $pesterResult | Add-Member -NotePropertyName attempts -NotePropertyValue 2
-        $pesterResult | Add-Member -NotePropertyName firstAttemptExitCode -NotePropertyValue ([int]$firstPesterResult.exitCode)
-        $pesterResult | Add-Member -NotePropertyName firstAttemptCounts -NotePropertyValue $firstPesterResult.counts
-    } else {
-        $pesterResult | Add-Member -NotePropertyName attempts -NotePropertyValue 1
+
+    $pesterTotal = 0
+    $pesterPassed = 0
+    $pesterFailed = 0
+    $pesterSkipped = 0
+    $pesterPending = 0
+    $pesterInconclusive = 0
+    $pesterSuccess = $true
+    $pesterExit = 0
+
+    foreach ($pPath in $pesterPaths) {
+        $pName = "pester-" + (Split-Path -LeafBase $pPath)
+        $pRes = Invoke-ChildRunner -Name $pName -ScriptPath (Join-Path $PSScriptRoot "run-pester-tests.ps1") -Arguments @{ Path = $pPath; ExpectedSkipCount = 0 }
+        if ($pRes.exitCode -ne 0) {
+            $pesterSuccess = $false
+            $pesterExit = [Math]::Max($pesterExit, [int]$pRes.exitCode)
+        }
+        if ($pRes.counts) {
+            $pesterTotal += [int]$pRes.counts.TotalCount
+            $pesterPassed += [int]$pRes.counts.PassedCount
+            $pesterFailed += [int]$pRes.counts.FailedCount
+            $pesterSkipped += [int]$pRes.counts.SkippedCount
+            $pesterPending += [int]$pRes.counts.PendingCount
+            $pesterInconclusive += [int]$pRes.counts.InconclusiveCount
+        }
     }
-    $records += $pesterResult
-    $overallExit = [Math]::Max($overallExit, [int]$pesterResult.exitCode)
+
+    $pesterSummary = [ordered]@{
+        TotalCount = $pesterTotal
+        PassedCount = $pesterPassed
+        FailedCount = $pesterFailed
+        SkippedCount = $pesterSkipped
+        PendingCount = $pesterPending
+        InconclusiveCount = $pesterInconclusive
+        Successful = ($pesterSuccess -and $pesterFailed -eq 0 -and $pesterSkipped -eq $ExpectedPesterSkipCount)
+    }
+
+    $records += [pscustomobject]@{
+        runner = "pester"
+        exitCode = $pesterExit
+        timedOut = $false
+        counts = $pesterSummary
+        attempts = 1
+    }
+    $overallExit = [Math]::Max($overallExit, $pesterExit)
 } catch {
     $overallExit = 1
     $records += [pscustomobject]@{ runner = "aggregate"; exitCode = 1; timedOut = $false; counts = [ordered]@{ operationalFailure = $true; message = $_.Exception.Message } }
