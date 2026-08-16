@@ -8,7 +8,16 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+$winPsModules = "$($env:SystemRoot)\System32\WindowsPowerShell\v1.0\Modules"
+$progPsModules = "$($env:ProgramFiles)\WindowsPowerShell\Modules"
+$env:PSModulePath = "$winPsModules;$progPsModules"
+
+Import-Module Microsoft.PowerShell.Utility -Force -ErrorAction SilentlyContinue
+Import-Module Microsoft.PowerShell.Management -Force -ErrorAction SilentlyContinue
+Import-Module Microsoft.PowerShell.Security -Force -ErrorAction SilentlyContinue
 Import-Module Pester -RequiredVersion 3.4.0
+
 if ($PathListPath -and (Test-Path -LiteralPath $PathListPath)) {
     $scriptPaths = Get-Content -Raw -LiteralPath $PathListPath -Encoding UTF8 | ConvertFrom-Json
 } elseif ($Path) {
@@ -29,3 +38,4 @@ $summary = [ordered]@{
 $summary | ConvertTo-Json -Compress | Set-Content -LiteralPath $ResultPath -Encoding UTF8
 if (-not $summary.Successful) { exit 1 }
 exit 0
+

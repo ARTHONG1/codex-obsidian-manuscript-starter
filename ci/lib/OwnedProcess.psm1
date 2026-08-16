@@ -170,6 +170,7 @@ function Invoke-OwnedProcess {
         $info.EnvironmentVariables['CODEX_OWNED_GATE'] = $gateName
         $info.EnvironmentVariables['CODEX_OWNED_FILE'] = $FilePath
         $info.EnvironmentVariables['CODEX_OWNED_ARGS_JSON'] = (@($ArgumentList) | ConvertTo-Json -Compress)
+        $info.EnvironmentVariables['PSModulePath'] = "$($env:SystemRoot)\System32\WindowsPowerShell\v1.0\Modules;$($env:ProgramFiles)\WindowsPowerShell\Modules"
         $process = New-Object System.Diagnostics.Process
         $process.StartInfo = $info
         if (-not $process.Start()) { throw "Process did not start." }
@@ -233,5 +234,6 @@ function Close-OwnedProcessRun {
 }
 
 Export-ModuleMember -Function New-OwnedProcessRun, Invoke-OwnedProcess, Test-RunOwnedPidAlive, Close-OwnedProcessRun
+
 
 
