@@ -131,7 +131,7 @@ jobs:
         run: |
           $root = Join-Path ([IO.Path]::GetTempPath()) "codex-package-$([guid]::NewGuid().ToString('N'))"
           New-Item -ItemType Directory -Path $root | Out-Null
-          .\ci\build-release.ps1 -SourceRoot (Get-Location) -OutputRoot $root -Version "0.5.2"
+          .\ci\build-release.ps1 -SourceRoot (Get-Location) -OutputRoot $root -Version "0.6.0"
           "CODEX_PACKAGE_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Verify release and clean install
         shell: pwsh
@@ -145,3 +145,4 @@ jobs:
         with:
           name: windows-ci-evidence
           path: ${{ runner.temp }}
+

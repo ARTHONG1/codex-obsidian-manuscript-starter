@@ -71,10 +71,20 @@ def promote(source: Path, destination: Path) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--source", type=Path, required=True)
-    parser.add_argument("--destination", type=Path, required=True)
+    parser.add_argument("--source", type=Path)
+    parser.add_argument("--destination", type=Path)
+    parser.add_argument("--check", action="store_true")
     parser.add_argument("--promote", action="store_true")
     args = parser.parse_args(argv)
+    if args.check:
+        repo_root = Path(__file__).resolve().parents[5]
+        source = args.source or (repo_root / "bootstrap")
+        destination = args.destination or (repo_root / "plugins" / "obsidian-manuscript-publisher" / "bootstrap")
+        result = compare(source, destination)
+        print(json.dumps(result, ensure_ascii=False))
+        return 0 if result["status"] == "matched" else 1
+    if not args.source or not args.destination:
+        parser.error("--source and --destination are required unless --check is specified")
     try:
         result = promote(args.source, args.destination) if args.promote else compare(args.source, args.destination)
     except Exception as error:
@@ -86,3 +96,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
