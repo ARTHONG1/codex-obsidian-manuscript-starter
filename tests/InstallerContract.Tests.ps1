@@ -67,24 +67,68 @@ function Resolve-InstallPaths {
     }
 }
 function Save-RuntimeConfig {
-    param([psobject]$Paths)
+    param([psobject]$Paths, [psobject]$PythonRuntime)
     New-Item -ItemType Directory -Path $Paths.RuntimeRoot -Force | Out-Null
     [ordered]@{
-        schemaVersion = 1
+        schemaVersion = 2
         vaultPath = $Paths.VaultPath
         restDataPath = $Paths.RestDataPath
         publicationRoot = $Paths.PublicationRoot
+        pythonExecutable = $PythonRuntime.BasePython
+        venvRoot = $PythonRuntime.VenvRoot
+        venvPythonExecutable = $PythonRuntime.Python
+        requirementsHash = $PythonRuntime.RequirementsHash
+        lastCompletedStage = $null
     } | ConvertTo-Json | Set-Content -LiteralPath $Paths.RuntimeConfigPath -Encoding UTF8
     return $Paths.RuntimeConfigPath
 }
 function Get-RuntimeConfig {
     param([string]$RuntimeConfigPath)
-    return Get-Content -Raw -LiteralPath $RuntimeConfigPath | ConvertFrom-Json
+    $runtime = Get-Content -Raw -LiteralPath $RuntimeConfigPath | ConvertFrom-Json
+    $runtime | Add-Member -NotePropertyName NeedsMigration -NotePropertyValue $false -Force
+    return $runtime
+}
+function Convert-RuntimeConfigV1ToV2 {
+    param([string]$RuntimeConfigPath, [psobject]$Paths, [psobject]$PythonRuntime)
+    Save-RuntimeConfig -Paths $Paths -PythonRuntime $PythonRuntime | Out-Null
+    return "$RuntimeConfigPath.v1.bak"
 }
 function Find-ObsidianExecutable { return (Join-Path $env:WINDIR "explorer.exe") }
-function Test-PythonRuntime { return [pscustomobject]@{ Ready = $true; Reason = "ready"; Python = "python" } }
-Export-ModuleMember -Function Resolve-InstallPaths, Save-RuntimeConfig, Get-RuntimeConfig, Find-ObsidianExecutable, Test-PythonRuntime
+function Set-InstallStage {
+    param([string]$RuntimeRoot, [string]$Stage)
+    New-Item -ItemType Directory -Path $RuntimeRoot -Force | Out-Null
+    [ordered]@{ schemaVersion = 2; stage = $Stage } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $RuntimeRoot "install-stage.json") -Encoding UTF8
+}
+Export-ModuleMember -Function Resolve-InstallPaths, Save-RuntimeConfig, Get-RuntimeConfig, Convert-RuntimeConfigV1ToV2, Find-ObsidianExecutable, Set-InstallStage
 '@ | Set-Content -LiteralPath (Join-Path $libRoot "Environment.psm1") -Encoding UTF8
+
+    @'
+function Find-Python312 {
+    [pscustomobject]@{ Ready = $true; Reason = "ready"; Python = "python"; PythonVersion = "3.12" }
+}
+function Install-Python312 {
+    [pscustomobject]@{ Status = "python_installed"; Recovery = "test" }
+}
+function New-VerifiedManagedVenv {
+    param([string]$BasePython, [string]$RuntimeRoot, [string]$RequirementsLockPath, [string]$ProbePath)
+    $venvRoot = Join-Path $RuntimeRoot "venv"
+    New-Item -ItemType Directory -Path (Join-Path $venvRoot "Scripts") -Force | Out-Null
+    [pscustomobject]@{
+        Ready = $true
+        BasePython = $BasePython
+        Python = (Join-Path $venvRoot "Scripts\python.exe")
+        VenvRoot = $venvRoot
+        RequirementsHash = ("a" * 64)
+        Reused = $false
+        Backup = $null
+    }
+}
+function Test-ManagedPythonRuntime {
+    param([string]$PythonPath, [string]$RequirementsHash, [string]$ProbePath)
+    [pscustomobject]@{ Ready = $true; Reason = "ready"; Python = $PythonPath; RequirementsHash = $RequirementsHash }
+}
+Export-ModuleMember -Function Find-Python312, Install-Python312, New-VerifiedManagedVenv, Test-ManagedPythonRuntime
+'@ | Set-Content -LiteralPath (Join-Path $libRoot "PythonRuntime.psm1") -Encoding UTF8
 
     @'
 function Initialize-StarterVault {
@@ -140,6 +184,98 @@ Export-ModuleMember -Function Resolve-PublicationRoot, Initialize-PublicationLib
 }
 
 Describe "Beginner installer safety contract" {
+    It "coordinates the nine approved resumable stages around the managed venv" {
+        foreach ($bootstrapRoot in @(
+            (Join-Path $repoRoot "bootstrap"),
+            (Join-Path $repoRoot "plugins\obsidian-manuscript-publisher\bootstrap")
+        )) {
+            $installer = Get-Content -Raw -LiteralPath (Join-Path $bootstrapRoot "install-windows.ps1") -Encoding UTF8
+            foreach ($stage in @("preflight", "base_python_ready", "venv_ready", "dependencies_ready", "vault_ready", "local_rest_ready", "runtime_ready")) {
+                $installer | Should Match ([regex]::Escape("Set-InstallStage -RuntimeRoot `$paths.RuntimeRoot -Stage `"$stage`""))
+            }
+            $installer | Should Not Match ([regex]::Escape('Set-InstallStage -RuntimeRoot $paths.RuntimeRoot -Stage "ready"'))
+            $installer | Should Match 'Update-BeginnerBootstrapState\s+-Stage\s+"runtime_ready"'
+            $installer | Should Match 'New-VerifiedManagedVenv\s+-BasePython\s+\$base\.Python'
+            $installer | Should Match 'Save-RuntimeConfig\s+-Paths\s+\$paths\s+-PythonRuntime\s+\$managed'
+            $installer | Should Not Match 'Test-PythonRuntime\s+-PythonPath'
+            $installer | Should Not Match 'Get-PythonRuntimeDeferredStatus'
+        }
+    }
+
+    It "uses only the managed venv interpreter for dependency installation" {
+        foreach ($bootstrapRoot in @(
+            (Join-Path $repoRoot "bootstrap"),
+            (Join-Path $repoRoot "plugins\obsidian-manuscript-publisher\bootstrap")
+        )) {
+            $installer = Get-Content -Raw -LiteralPath (Join-Path $bootstrapRoot "install-windows.ps1") -Encoding UTF8
+            $installer | Should Match 'New-VerifiedManagedVenv'
+            $installer | Should Not Match '(?im)^\s*&\s*\$base\.Python\s+-m\s+pip\b'
+            $installer | Should Not Match '(?im)^\s*&\s*\$pythonState\.Python\s+-m\s+pip\b'
+        }
+    }
+
+    It "makes doctor load schema-v2 runtime and probe only its recorded venv executable" {
+        foreach ($bootstrapRoot in @(
+            (Join-Path $repoRoot "bootstrap"),
+            (Join-Path $repoRoot "plugins\obsidian-manuscript-publisher\bootstrap")
+        )) {
+            $doctor = Get-Content -Raw -LiteralPath (Join-Path $bootstrapRoot "doctor.ps1") -Encoding UTF8
+            $doctor | Should Match 'Get-RuntimeConfig'
+            $doctor | Should Match 'NeedsMigration'
+            $doctor | Should Match 'Test-ManagedPythonRuntime\s+-PythonPath\s+\$runtime\.venvPythonExecutable'
+            $doctor | Should Not Match 'Test-PythonRuntime'
+            $doctor | Should Not Match '(?im)\bpython\.exe\b|\bGet-Command\s+python\b'
+        }
+    }
+
+    It "integrates PythonRuntime into both packaged installers" {
+        foreach ($bootstrapRoot in @(
+            (Join-Path $repoRoot "bootstrap"),
+            (Join-Path $repoRoot "plugins\obsidian-manuscript-publisher\bootstrap")
+        )) {
+            $installer = Get-Content -Raw -LiteralPath (Join-Path $bootstrapRoot "install-windows.ps1") -Encoding UTF8
+            $installer | Should Match 'PythonRuntime\.psm1'
+            $installer | Should Match '\$base = Find-Python312'
+            $installer | Should Match '\$install = Install-Python312'
+        }
+    }
+
+    It "does not invoke pip against base Python and defers managed runtime installation" {
+        foreach ($bootstrapRoot in @(
+            (Join-Path $repoRoot "bootstrap"),
+            (Join-Path $repoRoot "plugins\obsidian-manuscript-publisher\bootstrap")
+        )) {
+            $installer = Get-Content -Raw -LiteralPath (Join-Path $bootstrapRoot "install-windows.ps1") -Encoding UTF8
+            $installer | Should Not Match '(?im)^\s*&\s*\$pythonState\.Python\s+-m\s+pip\b'
+            $installer | Should Match 'New-VerifiedManagedVenv'
+            $installer | Should Match 'requirements\.lock\.txt'
+        }
+    }
+
+    It "rediscoveries Python 3.12 after a successful WinGet install and exposes restart-required status" {
+        foreach ($bootstrapRoot in @(
+            (Join-Path $repoRoot "bootstrap"),
+            (Join-Path $repoRoot "plugins\obsidian-manuscript-publisher\bootstrap")
+        )) {
+            $installer = Get-Content -Raw -LiteralPath (Join-Path $bootstrapRoot "install-windows.ps1") -Encoding UTF8
+            $installIndex = $installer.IndexOf('$install = Install-Python312')
+            $rediscoveryIndex = if ($installIndex -ge 0) {
+                $installer.IndexOf('$base = Find-Python312', $installIndex + 1)
+            } else {
+                -1
+            }
+            $restartIndex = if ($rediscoveryIndex -ge 0) {
+                $installer.IndexOf('python_installed_restart_required', $rediscoveryIndex)
+            } else {
+                -1
+            }
+
+            $installIndex | Should BeGreaterThan -1
+            $rediscoveryIndex | Should BeGreaterThan $installIndex
+            $restartIndex | Should BeGreaterThan $rediscoveryIndex
+        }
+    }
+
     It "ships install, doctor, and non-destructive uninstall entry points" {
         Test-Path (Join-Path $repoRoot "bootstrap\install-windows.ps1") | Should Be $true
         Test-Path (Join-Path $repoRoot "bootstrap\doctor.ps1") | Should Be $true
@@ -149,7 +285,7 @@ Describe "Beginner installer safety contract" {
     It "ships the exact same bootstrap files inside the installable plugin" {
         $pluginBootstrap = Join-Path $repoRoot "plugins\obsidian-manuscript-publisher\bootstrap"
         Test-Path (Join-Path $repoRoot "plugins\obsidian-manuscript-publisher\skills\obsidian-manuscript-setup\SKILL.md") | Should Be $true
-        foreach ($file in @("install-windows.ps1", "doctor.ps1", "uninstall.ps1", "dependencies.lock.json", "lib\Environment.psm1", "lib\Vault.psm1", "lib\LocalRest.psm1", "lib\PublicationLibrary.psm1")) {
+        foreach ($file in @("install-windows.ps1", "install-codex-skills.ps1", "doctor.ps1", "uninstall.ps1", "codex-skills-manifest.json", "publisher-manifest.json", "dependencies.lock.json", "official-installers.lock.json", "lib\BootstrapState.psm1", "lib\CodexSkills.psm1", "lib\OfficialInstallers.psm1", "lib\Environment.psm1", "lib\Vault.psm1", "lib\LocalRest.psm1", "lib\PublicationLibrary.psm1", "lib\PythonRuntime.psm1")) {
             (Get-FileHash -LiteralPath (Join-Path $repoRoot ("bootstrap\" + $file)) -Algorithm SHA256).Hash | Should Be (Get-FileHash -LiteralPath (Join-Path $pluginBootstrap $file) -Algorithm SHA256).Hash
         }
     }
@@ -157,6 +293,19 @@ Describe "Beginner installer safety contract" {
     It "resolves its dependency lock from inside each bootstrap tree so the packaged plugin is self-contained" {
         foreach ($bootstrapDir in @((Join-Path $repoRoot "bootstrap"), (Join-Path $repoRoot "plugins\obsidian-manuscript-publisher\bootstrap"))) {
             Test-Path -LiteralPath (Join-Path $bootstrapDir "dependencies.lock.json") | Should Be $true
+        }
+    }
+
+    It "ships and references the hash-complete runtime lock in both bootstrap trees" {
+        foreach ($bootstrapRoot in @(
+            (Join-Path $repoRoot "bootstrap"),
+            (Join-Path $repoRoot "plugins\obsidian-manuscript-publisher\bootstrap")
+        )) {
+            $lock = Join-Path (Split-Path -Parent $bootstrapRoot) "requirements.lock.txt"
+            Test-Path -LiteralPath $lock | Should Be $true
+            $installer = Get-Content -Raw -LiteralPath (Join-Path $bootstrapRoot "install-windows.ps1") -Encoding UTF8
+            $installer | Should Match "requirements\.lock\.txt"
+            $installer | Should Not Match "requirements\.txt"
         }
     }
 
@@ -488,6 +637,93 @@ Describe "Beginner installer safety contract" {
         (Get-Content -Raw -LiteralPath $paths.RuntimeConfigPath) | Should Not Match 'apiKey|token|secret|bearer|privateKey|certificate'
     }
 
+    It "writes schema-v2 runtime fields without secrets" {
+        Import-Module $environmentModule -Force
+        $runtimeRoot = Join-Path $TestDrive "schema-v2-runtime"
+        $paths = Resolve-InstallPaths -VaultPath (Join-Path $TestDrive "schema-v2-vault") -RuntimeRoot $runtimeRoot -PublicationRoot (Join-Path $TestDrive "schema-v2-publication")
+        $python = [pscustomobject]@{
+            BasePython = [IO.Path]::GetFullPath((Join-Path $TestDrive "Python312\python.exe"))
+            Python = [IO.Path]::GetFullPath((Join-Path $runtimeRoot "venv\Scripts\python.exe"))
+            VenvRoot = [IO.Path]::GetFullPath((Join-Path $runtimeRoot "venv"))
+            RequirementsHash = ("a" * 64)
+        }
+
+        Save-RuntimeConfig -Paths $paths -PythonRuntime $python | Out-Null
+        $config = Get-Content -Raw -LiteralPath $paths.RuntimeConfigPath | ConvertFrom-Json
+
+        $config.schemaVersion | Should Be 2
+        $config.pythonExecutable | Should Be $python.BasePython
+        $config.venvRoot | Should Be $python.VenvRoot
+        $config.venvPythonExecutable | Should Be $python.Python
+        $config.requirementsHash | Should Be $python.RequirementsHash
+        $config.lastCompletedStage | Should Be $null
+        ($config | ConvertTo-Json -Depth 8) | Should Not Match 'apiKey|cert|BEGIN CERTIFICATE'
+    }
+
+    It "normalizes schema-v1 as read-only and migrates only explicitly" {
+        Import-Module $environmentModule -Force
+        $vault = Join-Path $TestDrive "migration-vault"
+        $configPath = Join-Path $TestDrive "migration-runtime.json"
+        $runtimeRoot = Split-Path -Parent $configPath
+        $v1 = [ordered]@{
+            schemaVersion = 1
+            vaultPath = [IO.Path]::GetFullPath($vault)
+            restDataPath = Join-Path ([IO.Path]::GetFullPath($vault)) ".obsidian\plugins\obsidian-local-rest-api\data.json"
+            publicationRoot = [IO.Path]::GetFullPath((Join-Path $TestDrive "migration-publication"))
+        } | ConvertTo-Json -Depth 8
+        [IO.File]::WriteAllText($configPath, $v1, [Text.UTF8Encoding]::new($false))
+        $before = [IO.File]::ReadAllBytes($configPath)
+
+        $loaded = Get-RuntimeConfig -RuntimeConfigPath $configPath
+
+        $loaded.schemaVersion | Should Be 1
+        $loaded.NeedsMigration | Should Be $true
+        $loaded.pythonExecutable | Should Be $null
+        [IO.File]::ReadAllBytes($configPath) | Should Be $before
+
+        $python = [pscustomobject]@{
+            BasePython = "C:\Python312\python.exe"
+            Python = "C:\managed\venv\Scripts\python.exe"
+            VenvRoot = "C:\managed\venv"
+            RequirementsHash = ("b" * 64)
+        }
+        $paths = [pscustomobject]@{
+            VaultPath = $loaded.vaultPath
+            RestDataPath = $loaded.restDataPath
+            PublicationRoot = $loaded.publicationRoot
+            RuntimeRoot = $runtimeRoot
+            RuntimeConfigPath = $configPath
+        }
+        $backup = Convert-RuntimeConfigV1ToV2 -RuntimeConfigPath $configPath -Paths $paths -PythonRuntime $python
+
+        $backup | Should Match '\.v1\.bak$'
+        Test-Path -LiteralPath $backup -PathType Leaf | Should Be $true
+        (Get-RuntimeConfig -RuntimeConfigPath $configPath).schemaVersion | Should Be 2
+    }
+
+    It "accepts only approved schema-v2 install stages and mirrors the runtime stage" {
+        Import-Module $environmentModule -Force
+        $runtimeRoot = Join-Path $TestDrive "stage-runtime"
+        $paths = Resolve-InstallPaths -VaultPath (Join-Path $TestDrive "stage-vault") -RuntimeRoot $runtimeRoot -PublicationRoot (Join-Path $TestDrive "stage-publication")
+        $python = [pscustomobject]@{
+            BasePython = "C:\Python312\python.exe"
+            Python = "C:\managed\venv\Scripts\python.exe"
+            VenvRoot = "C:\managed\venv"
+            RequirementsHash = ("c" * 64)
+        }
+        Save-RuntimeConfig -Paths $paths -PythonRuntime $python | Out-Null
+
+        foreach ($stage in @("preflight","base_python_ready","venv_ready","dependencies_ready","vault_ready","local_rest_ready","runtime_ready","doctor_verified","ready")) {
+            { Set-InstallStage -RuntimeRoot $runtimeRoot -Stage $stage } | Should Not Throw
+            $state = Get-InstallStage -RuntimeRoot $runtimeRoot
+            $state.schemaVersion | Should Be 2
+            $state.stage | Should Be $stage
+            (Get-RuntimeConfig -RuntimeConfigPath $paths.RuntimeConfigPath).lastCompletedStage | Should Be $stage
+        }
+
+        { Set-InstallStage -RuntimeRoot $runtimeRoot -Stage "not-a-stage" } | Should Throw
+    }
+
     It "loads a legacy schema-v1 runtime without publicationRoot" {
         if (-not (Test-Path $environmentModule)) { throw "Environment module is missing" }
         Import-Module $environmentModule -Force
@@ -575,6 +811,88 @@ Describe "Beginner installer safety contract" {
         $source | Should Not Match '(?im)^\s*insecure\s*$|--insecure'
     }
 
+    It "resolves curl.exe to an absolute path and rejects an unavailable resolver" {
+        Import-Module $restModule -Force
+        $absolute = Join-Path $TestDrive "curl.exe"
+        Set-Content -LiteralPath $absolute -Value "test" -Encoding ASCII -NoNewline
+
+        (Get-CurlExecutable -CommandResolver { $absolute }) | Should Be ([IO.Path]::GetFullPath($absolute))
+        { Get-CurlExecutable -CommandResolver { $null } } | Should Throw "curl_unavailable"
+    }
+
+    It "polls transient Local REST configuration until a complete listening state" {
+        Import-Module $restModule -Force
+        $dataPath = Join-Path $TestDrive "polling-data.json"
+        $states = @(
+            $null,
+            "",
+            "{",
+            '{"port":27124}',
+            '{"port":27124,"crypto":{"cert":"cert"}}',
+            '{"port":27124,"crypto":{"cert":"cert"}}'
+        )
+        $script:stateIndex = 0
+        $script:curlCalls = 0
+        $readConfig = {
+            if ($script:stateIndex -lt $states.Count) {
+                $state = $states[$script:stateIndex]
+                $script:stateIndex++
+                if ($null -eq $state) {
+                    Remove-Item -LiteralPath $dataPath -Force -ErrorAction SilentlyContinue
+                } else {
+                    Set-Content -LiteralPath $dataPath -Value $state -Encoding UTF8 -NoNewline
+                }
+            }
+            return $true
+        }
+        $curl = {
+            param($Executable, $Arguments)
+            $script:curlCalls++
+            if ($script:stateIndex -lt 6) { throw "not listening yet" }
+            return 0
+        }
+
+        $result = Wait-ForLocalRest -DataPath $dataPath -TimeoutSeconds 8 `
+            -CommandResolver { (Join-Path $TestDrive "curl.exe") } `
+            -ReadinessReader $readConfig -CurlInvoker $curl
+
+        $result.Port | Should Be 27124
+        $script:curlCalls | Should BeGreaterThan 0
+        $script:stateIndex | Should Be 6
+    }
+
+    It "fails closed at the Local REST readiness deadline without secrets" {
+        Import-Module $restModule -Force
+        $dataPath = Join-Path $TestDrive "timeout-data.json"
+        Set-Content -LiteralPath $dataPath -Value '{"apiKey":"secret","port":27124,"crypto":{"cert":"private-looking"}}' -Encoding UTF8
+        try {
+            Wait-ForLocalRest -DataPath $dataPath -TimeoutSeconds 1 `
+                -CommandResolver { throw "curl.exe missing secret=secret" } `
+                -ReadinessReader { $true } -CurlInvoker { param($Executable, $Arguments) throw "connection refused" }
+            throw "expected timeout"
+        } catch {
+            $_.Exception.Message | Should Match '^local_rest_not_ready:'
+            $_.Exception.Message | Should Not Match 'secret|private-looking|curl.exe missing'
+            $_.Exception.Message | Should Match 'Keep Obsidian open, verify the Local REST plugin is enabled, and rerun doctor'
+        }
+    }
+
+    It "rejects invalid ports and missing certificates before curl" {
+        Import-Module $restModule -Force
+        foreach ($payload in @(
+            '{"port":0,"crypto":{"cert":"cert"}}',
+            '{"port":65536,"crypto":{"cert":"cert"}}',
+            '{"port":27124}',
+            '{"port":27124,"crypto":{"cert":""}}'
+        )) {
+            $dataPath = Join-Path $TestDrive ("invalid-" + [guid]::NewGuid().ToString("N") + ".json")
+            Set-Content -LiteralPath $dataPath -Value $payload -Encoding UTF8
+            { Wait-ForLocalRest -DataPath $dataPath -TimeoutSeconds 1 `
+                -CommandResolver { Join-Path $TestDrive "curl.exe" } `
+                -ReadinessReader { $true } -CurlInvoker { throw "must not run" } } | Should Throw "local_rest_not_ready"
+        }
+    }
+
     It "agrees with production on the terminal health status vocabulary" {
         # The harness stubs the network boundary, so without this the suite could assert a status
         # string that production is incapable of returning.
@@ -637,10 +955,14 @@ Describe "Beginner installer safety contract" {
         $runtimePath = Join-Path $TestDrive "doctor-runtime.json"
         New-Item -ItemType Directory -Path $vaultPath, $publicationRoot -Force | Out-Null
         [ordered]@{
-            schemaVersion = 1
+            schemaVersion = 2
             vaultPath = [IO.Path]::GetFullPath($vaultPath)
             restDataPath = Join-Path ([IO.Path]::GetFullPath($vaultPath)) ".obsidian\plugins\obsidian-local-rest-api\data.json"
             publicationRoot = [IO.Path]::GetFullPath($publicationRoot)
+            pythonExecutable = "C:\Python312\python.exe"
+            venvRoot = "C:\managed\venv"
+            venvPythonExecutable = "C:\managed\venv\Scripts\python.exe"
+            requirementsHash = ("a" * 64)
         } | ConvertTo-Json | Set-Content -LiteralPath $runtimePath -Encoding UTF8
 
         $result = & $harness.DoctorScript -RuntimeConfigPath $runtimePath -TimeoutSeconds 1
@@ -661,10 +983,14 @@ Describe "Beginner installer safety contract" {
         $sentinelPath = Join-Path $publicationRoot "user-content.txt"
         Set-Content -LiteralPath $sentinelPath -Value "preserve me" -Encoding UTF8 -NoNewline
         [ordered]@{
-            schemaVersion = 1
+            schemaVersion = 2
             vaultPath = [IO.Path]::GetFullPath($vaultPath)
             restDataPath = Join-Path ([IO.Path]::GetFullPath($vaultPath)) ".obsidian\plugins\obsidian-local-rest-api\data.json"
             publicationRoot = [IO.Path]::GetFullPath($publicationRoot)
+            pythonExecutable = "C:\Python312\python.exe"
+            venvRoot = "C:\managed\venv"
+            venvPythonExecutable = "C:\managed\venv\Scripts\python.exe"
+            requirementsHash = ("a" * 64)
         } | ConvertTo-Json | Set-Content -LiteralPath $runtimePath -Encoding UTF8
 
         { & $harness.DoctorScript -RuntimeConfigPath $runtimePath -TimeoutSeconds 1 } | Should Throw
@@ -676,6 +1002,60 @@ Describe "Beginner installer safety contract" {
 }
 
 Describe "Desktop publication library safety contract" {
+    It "rejects equality and nesting for every install-root pair" {
+        Import-Module $environmentModule -Force
+        $root = Join-Path $TestDrive "install-root-overlap"
+        $other = Join-Path $TestDrive "install-root-other"
+        New-Item -ItemType Directory -Path $root, $other -Force | Out-Null
+
+        foreach ($case in @(
+            @{ Name = "Vault equals Runtime"; Vault = $root; Runtime = $root; Publication = $other },
+            @{ Name = "Vault contains Runtime"; Vault = $root; Runtime = (Join-Path $root "runtime"); Publication = $other },
+            @{ Name = "Runtime contains Vault"; Vault = (Join-Path $root "vault"); Runtime = $root; Publication = $other },
+            @{ Name = "Vault equals Publication"; Vault = $root; Runtime = $other; Publication = $root },
+            @{ Name = "Vault contains Publication"; Vault = $root; Runtime = $other; Publication = (Join-Path $root "publication") },
+            @{ Name = "Publication contains Vault"; Vault = (Join-Path $root "vault"); Runtime = $other; Publication = $root },
+            @{ Name = "Runtime equals Publication"; Vault = $other; Runtime = $root; Publication = $root },
+            @{ Name = "Runtime contains Publication"; Vault = $other; Runtime = $root; Publication = (Join-Path $root "publication") },
+            @{ Name = "Publication contains Runtime"; Vault = $other; Runtime = (Join-Path $root "runtime"); Publication = $root }
+        )) {
+            $threw = $false
+            try {
+                Assert-InstallPathSetIsSafe -VaultPath $case.Vault -RuntimeRoot $case.Runtime -PublicationRoot $case.Publication
+            } catch {
+                $threw = $true
+            }
+            $threw | Should Be $true
+        }
+    }
+
+    It "rejects symbolic-link and junction aliases before accepting the install-root set" {
+        Import-Module $environmentModule -Force
+        $root = Join-Path $TestDrive "install-reparse"
+        $vault = Join-Path $root "vault"
+        $runtime = Join-Path $root "runtime"
+        $publication = Join-Path $root "publication"
+        New-Item -ItemType Directory -Path $vault, $runtime, $publication -Force | Out-Null
+
+        foreach ($kind in @("SymbolicLink", "Junction")) {
+            $alias = Join-Path $root ("vault-" + $kind.ToLowerInvariant())
+            try {
+                New-Item -ItemType $kind -Path $alias -Target $vault -ErrorAction Stop | Out-Null
+            } catch {
+                Write-Warning "SKIPPED: Windows does not permit $kind creation in this test environment."
+                continue
+            }
+
+            $threw = $false
+            try {
+                Assert-InstallPathSetIsSafe -VaultPath $alias -RuntimeRoot $runtime -PublicationRoot $publication
+            } catch {
+                $threw = $true
+            }
+            $threw | Should Be $true
+        }
+    }
+
     It "resolves the default publication root below the Windows Desktop known folder" {
         if (-not (Test-Path $publicationModule)) { throw "PublicationLibrary module is missing" }
         Import-Module $publicationModule -Force

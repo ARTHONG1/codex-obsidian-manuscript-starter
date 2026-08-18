@@ -1,37 +1,36 @@
 # Third-party notices
 
-This project includes or installs the following third-party components. Their
-original license terms remain applicable to those components.
+The package names and versions below are copied from the committed lock files. A license is listed only where the installed package metadata inspected for this release states one unambiguously; no license is inferred from a package name or URL.
+
+## Direct runtime packages
+
+| Package | Locked version | License metadata |
+| --- | ---: | --- |
+| Pillow | 12.3.0 | Not stated in inspected metadata |
+| reportlab | 4.4.3 | BSD license |
+| python-docx | 1.2.0 | MIT |
+| pdfplumber | 0.11.9 | Not stated in inspected metadata |
+| pypdfium2 | 5.12.1 | BSD-3-Clause; Apache-2.0 dependency licenses |
+| pypdf | 5.9.0 | Not stated in inspected metadata |
+
+## Hash-locked transitive packages
+
+The following names and versions are locked by `requirements.lock.txt`; their hashes are part of the release contract. License terms are not guessed here when inspected metadata is blank or describes only a homepage/changelog.
+
+| Package | Locked version |
+| --- | ---: |
+| cffi | 2.1.1 |
+| charset-normalizer | 3.5.0 |
+| cryptography | 50.0.0 |
+| lxml | 6.1.1 |
+| pdfminer-six | 20251230 |
+| pycparser | 3.0 |
+| typing-extensions | 4.16.0 |
 
 ## Obsidian Local REST API
 
-- Version: 5.0.2 (see `dependencies.lock.json`)
-- License: MIT License
-- Copyright: Adam Coddington and contributors
-- Source: https://github.com/coddingtonbear/obsidian-local-rest-api
+- Version: 5.0.2
+- Release assets and SHA-256 values: `dependencies.lock.json`
+- License: Not stated in inspected authoritative metadata.
 
-## Pillow
-
-- Version: 12.3.0 (see `requirements.txt`)
-- License: MIT-CMU License
-- Source: https://github.com/python-pillow/Pillow
-
-## ReportLab
-
-- Version: 4.4.3 (see `requirements.txt`)
-- License: BSD 3-Clause License
-- Source: https://www.reportlab.com/opensource/
-
-The project itself is distributed under the MIT License in `LICENSE`. This
-file is a notice and does not replace the upstream license texts.
-## User template analysis
-
-- python-docx 1.2.0 — MIT License
-- pdfplumber 0.11.9 — MIT License
-- pypdfium2 5.12.1 — BSD-3-Clause / Apache-2.0 components
-- lxml — BSD-3-Clause
-- pdfminer.six — MIT License
-- charset-normalizer — MIT License
-- typing-extensions — PSF-2.0
-- cryptography — Apache-2.0 / BSD-3-Clause components
-- cffi — MIT-0
+The project itself is distributed under the MIT License in `LICENSE`. This notice does not replace upstream license texts. A release that requires a license for a row marked “Not stated” must obtain and record authoritative package metadata before publishing.

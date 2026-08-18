@@ -1,5 +1,12 @@
 {
   "schemaVersion": 1,
+  "ciTools": {
+    "gitleaks": {
+      "repository": "gitleaks/gitleaks-action",
+      "reviewedRef": "v2.3.9",
+      "sha": "ff98106e4c7b2bc287b24eaf42907196329070c7"
+    }
+  },
   "localRest": {
     "pluginId": "obsidian-local-rest-api",
     "version": "5.0.2",

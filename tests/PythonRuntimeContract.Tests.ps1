@@ -1,0 +1,547 @@
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$modulePath = Join-Path $repoRoot "bootstrap\lib\PythonRuntime.psm1"
+
+Describe "Python 3.12 runtime contract" {
+    BeforeEach {
+        Remove-Module PythonRuntime -ErrorAction SilentlyContinue
+        Import-Module $modulePath -Force
+    }
+
+    It "skips Python 3.11 on PATH and selects py -3.12" {
+        $python312 = Join-Path $TestDrive "Python312\python.exe"
+        $python311 = Join-Path $TestDrive "Python311\python.exe"
+        New-Item -ItemType Directory -Path (Split-Path $python312) -Force | Out-Null
+        New-Item -ItemType File -Path $python312 -Force | Out-Null
+        New-Item -ItemType Directory -Path (Split-Path $python311) -Force | Out-Null
+        New-Item -ItemType File -Path $python311 -Force | Out-Null
+        $resolver = {
+            param([string]$Command, [string[]]$Arguments)
+            if ($Command -eq "py" -and $Arguments -contains "-3.12") {
+                return $python312
+            }
+            if ($Command -eq "python") {
+                return $python311
+            }
+            return $null
+        }.GetNewClosure()
+        $probe = {
+            param([string]$Candidate)
+            if ($Candidate -eq ([IO.Path]::GetFullPath($python312))) {
+                return [pscustomobject]@{
+                    ExitCode = 0
+                    Major = 3
+                    Minor = 12
+                    Executable = $python312
+                }
+            }
+            return [pscustomobject]@{
+                ExitCode = 0
+                Major = 3
+                Minor = 11
+                Executable = $python311
+            }
+        }.GetNewClosure()
+
+        $result = Find-Python312 -CommandResolver $resolver -VersionProbe $probe
+
+        $result.Ready | Should Be $true
+        $result.Python | Should Be ([IO.Path]::GetFullPath($python312))
+        $result.PythonVersion | Should Be "3.12"
+        $result.Source | Should Be "py -3.12"
+    }
+
+    It "rejects a 3.13-only resolver" {
+        $resolver = {
+            param([string]$Command, [string[]]$Arguments)
+            if ($Command -eq "py") { return "C:\Python313\python.exe" }
+            return $null
+        }
+        $probe = {
+            param([string]$Candidate)
+            [pscustomobject]@{
+                ExitCode = 0
+                Major = 3
+                Minor = 13
+                Executable = $Candidate
+            }
+        }
+
+        $result = Find-Python312 -CommandResolver $resolver -VersionProbe $probe
+
+        $result.Ready | Should Be $false
+        $result.Reason | Should Be "python_312_not_found"
+    }
+
+    It "accepts only a candidate whose self-reported executable resolves to itself" {
+        $candidate = Join-Path $TestDrive "python.exe"
+        New-Item -ItemType File -Path $candidate | Out-Null
+        $resolver = {
+            param([string]$Command, [string[]]$Arguments)
+            return $candidate
+        }.GetNewClosure()
+        $probe = {
+            param([string]$Candidate)
+            [pscustomobject]@{
+                ExitCode = 0
+                Major = 3
+                Minor = 12
+                Executable = (Join-Path $TestDrive "other-python.exe")
+            }
+        }.GetNewClosure()
+
+        $result = Find-Python312 -CommandResolver $resolver -VersionProbe $probe
+
+        $result.Ready | Should Be $false
+    }
+
+    It "deduplicates canonical candidate paths case-insensitively" {
+        $first = Join-Path $TestDrive "Python312\python.exe"
+        New-Item -ItemType Directory -Path (Split-Path $first) -Force | Out-Null
+        New-Item -ItemType File -Path $first -Force | Out-Null
+        $calls = New-Object System.Collections.ArrayList
+        $resolver = {
+            param([string]$Command, [string[]]$Arguments)
+            if ($Command -eq "py") { return $first.ToUpperInvariant() }
+            if ($Command -eq "python") { return $first.ToLowerInvariant() }
+            return $null
+        }.GetNewClosure()
+        $probe = {
+            param([string]$Candidate)
+            [void]$calls.Add($Candidate)
+            [pscustomobject]@{
+                ExitCode = 0
+                Major = 3
+                Minor = 12
+                Executable = $Candidate
+            }
+        }.GetNewClosure()
+
+        $result = Find-Python312 -CommandResolver $resolver -VersionProbe $probe
+
+        $result.Ready | Should Be $true
+        $calls.Count | Should Be 1
+    }
+
+    It "rejects a candidate beneath a reparse-point ancestor" {
+        $realRoot = Join-Path $TestDrive "real-root"
+        $reparseRoot = Join-Path $TestDrive "reparse-root"
+        $candidate = Join-Path $reparseRoot "nested\Python312\python.exe"
+        New-Item -ItemType Directory -Path (Join-Path $realRoot "nested\Python312") -Force | Out-Null
+        New-Item -ItemType File -Path (Join-Path $realRoot "nested\Python312\python.exe") -Force | Out-Null
+        try {
+            New-Item -ItemType Junction -Path $reparseRoot -Target $realRoot -ErrorAction Stop | Out-Null
+        } catch {
+            return
+        }
+
+        $probe = {
+            param([string]$Candidate)
+            [pscustomobject]@{
+                ExitCode = 0
+                Major = 3
+                Minor = 12
+                Executable = $Candidate
+            }
+        }.GetNewClosure()
+
+        $result = Find-Python312 -ExplicitPython $candidate -CommandResolver {
+            param([string]$Command, [string[]]$Arguments)
+            return $null
+        } -VersionProbe $probe -LocalAppDataRoot $null -ProgramFilesRoot $null
+
+        $result.Ready | Should Be $false
+    }
+
+    It "returns python_install_manual_required without invoking the process runner when WinGet is absent" {
+        $called = $false
+        $runner = {
+            param([string]$Executable, [string[]]$Arguments)
+            $script:called = $true
+        }.GetNewClosure()
+
+        $result = Install-Python312 -WingetPath $null -ProcessRunner $runner
+
+        $result.Status | Should Be "python_install_manual_required"
+        $result.Recovery | Should Match "WinGet"
+        $called | Should Be $false
+    }
+
+    It "calls the exact Python 3.12 WinGet command and returns python_installed" {
+        $winget = Join-Path $TestDrive "winget.exe"
+        New-Item -ItemType File -Path $winget -Force | Out-Null
+        $state = @{ Invocation = $null }
+        $runner = {
+            param([string]$Executable, [string[]]$Arguments)
+            $state.Invocation = [pscustomobject]@{
+                Executable = $Executable
+                Arguments = $Arguments
+                ExitCode = 0
+            }
+            return $state.Invocation
+        }.GetNewClosure()
+
+        $result = Install-Python312 -WingetPath $winget -ProcessRunner $runner
+
+        $result.Status | Should Be "python_installed"
+        $state.Invocation.Executable | Should Be ([IO.Path]::GetFullPath($winget))
+        ($state.Invocation.Arguments -join " ") | Should Be "install --id Python.Python.3.12 --exact --accept-source-agreements --accept-package-agreements"
+    }
+
+    It "returns python_install_failed when WinGet exits unsuccessfully" {
+        $winget = Join-Path $TestDrive "winget.exe"
+        New-Item -ItemType File -Path $winget -Force | Out-Null
+        $runner = {
+            param([string]$Executable, [string[]]$Arguments)
+            return [pscustomobject]@{ ExitCode = 17 }
+        }
+
+        $result = Install-Python312 -WingetPath $winget -ProcessRunner $runner
+
+        $result.Status | Should Be "python_install_failed"
+        $result.Recovery | Should Match "17"
+    }
+
+    It "returns python_installed when installation succeeds so the caller can rediscover" {
+        $winget = Join-Path $TestDrive "winget.exe"
+        New-Item -ItemType File -Path $winget -Force | Out-Null
+        $runner = {
+            param([string]$Executable, [string[]]$Arguments)
+            return [pscustomobject]@{ ExitCode = 0 }
+        }
+
+        $result = Install-Python312 -WingetPath $winget -ProcessRunner $runner
+
+        $result.Status | Should Be "python_installed"
+    }
+
+    It "rejects WinGet beneath a reparse-point ancestor" {
+        $realRoot = Join-Path $TestDrive "real-winget"
+        $reparseRoot = Join-Path $TestDrive "reparse-winget"
+        $winget = Join-Path $reparseRoot "bin\winget.exe"
+        New-Item -ItemType Directory -Path (Join-Path $realRoot "bin") -Force | Out-Null
+        New-Item -ItemType File -Path (Join-Path $realRoot "bin\winget.exe") -Force | Out-Null
+        try {
+            New-Item -ItemType Junction -Path $reparseRoot -Target $realRoot -ErrorAction Stop | Out-Null
+        } catch {
+            return
+        }
+
+        $called = $false
+        $runner = {
+            param([string]$Executable, [string[]]$Arguments)
+            $script:called = $true
+            return [pscustomobject]@{ ExitCode = 0 }
+        }.GetNewClosure()
+
+        $result = Install-Python312 -WingetPath $winget -ProcessRunner $runner
+
+        $result.Status | Should Be "python_install_manual_required"
+        $called | Should Be $false
+    }
+
+    It "returns a structured deferred status for managed runtime installation" {
+        $status = Get-PythonRuntimeDeferredStatus -PythonPath "C:\Python312\python.exe"
+
+        $status.Status | Should Be "python_runtime_install_deferred"
+        $status.Reason | Should Be "managed_venv_install_deferred"
+        $status.Python | Should Be "C:\Python312\python.exe"
+        $status.Recovery | Should Match "Task 3/5"
+    }
+
+    It "returns python_installed_restart_required when rediscovery remains empty" {
+        $winget = Join-Path $TestDrive "winget.exe"
+        New-Item -ItemType File -Path $winget -Force | Out-Null
+        $resolver = {
+            param([string]$Command, [string[]]$Arguments)
+            return $null
+        }
+        $probe = {
+            param([string]$Candidate)
+            throw "probe should not run"
+        }
+        $install = Install-Python312 -WingetPath $winget -ProcessRunner {
+            param([string]$Executable, [string[]]$Arguments)
+            [pscustomobject]@{ ExitCode = 0 }
+        }
+        $rediscovered = Find-Python312 -CommandResolver $resolver -VersionProbe $probe
+
+        $install.Status | Should Be "python_installed"
+        $rediscovered.Ready | Should Be $false
+        $rediscovered.Reason | Should Be "python_312_not_found"
+        $status = [pscustomobject]@{
+            Status = "python_installed_restart_required"
+            Recovery = "Restart Codex and rerun the same installer command."
+        }
+        $status.Status | Should Be "python_installed_restart_required"
+    }
+
+    It "does not mutate PATH or the registry" {
+        $winget = Join-Path $TestDrive "winget.exe"
+        New-Item -ItemType File -Path $winget -Force | Out-Null
+        $beforePath = $env:PATH
+        $runner = {
+            param([string]$Executable, [string[]]$Arguments)
+            return [pscustomobject]@{ ExitCode = 0 }
+        }
+
+        [void](Install-Python312 -WingetPath $winget -ProcessRunner $runner)
+
+        $env:PATH | Should Be $beforePath
+        (Get-Command Set-ItemProperty -ErrorAction SilentlyContinue).Name | Should Be "Set-ItemProperty"
+    }
+
+    It "returns canonical active and unique candidate managed venv paths" {
+        $root = Join-Path $TestDrive "runtime"
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        $paths = Get-ManagedVenvPaths -RuntimeRoot $root
+
+        $paths.ActiveRoot | Should Be ([IO.Path]::GetFullPath((Join-Path $root "venv")))
+        $paths.ActivePython | Should Be ([IO.Path]::GetFullPath((Join-Path $root "venv\Scripts\python.exe")))
+        $paths.CandidateRoot | Should Match ([regex]::Escape(([IO.Path]::GetFullPath($root))))
+        $paths.CandidateRoot | Should Match "venv\.candidate-[0-9a-f]{32}$"
+    }
+
+    It "installs requirements only with the candidate venv Python and hash enforcement" {
+        $root = Join-Path $TestDrive "runtime"
+        $lock = Join-Path $TestDrive "requirements.lock.txt"
+        $probePath = Join-Path $TestDrive "verify_python_runtime.py"
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        Set-Content -Path $lock -Value "package==1.0 --hash=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        New-Item -ItemType File -Path $probePath -Force | Out-Null
+        $expectedHash = (Get-FileHash -LiteralPath $lock -Algorithm SHA256).Hash.ToLowerInvariant()
+        $calls = New-Object System.Collections.ArrayList
+        $runner = {
+            param([string]$Executable, [string[]]$Arguments)
+            [void]$calls.Add([pscustomobject]@{ Executable = $Executable; Arguments = $Arguments })
+            if ($Arguments -contains "-m" -and $Arguments -contains "venv") {
+                $candidate = $Arguments[$Arguments.Count - 1]
+                New-Item -ItemType Directory -Path (Join-Path $candidate "Scripts") -Force | Out-Null
+                New-Item -ItemType File -Path (Join-Path $candidate "Scripts\python.exe") -Force | Out-Null
+            }
+            return [pscustomobject]@{ ExitCode = 0; Output = ('{"ready":true,"requirements_hash":"' + $expectedHash + '"}') }
+        }.GetNewClosure()
+
+        $result = New-VerifiedManagedVenv -BasePython "C:\base\python.exe" -RuntimeRoot $root `
+            -RequirementsLockPath $lock -ProbePath $probePath -ProcessRunner $runner
+
+        $pip = $calls | Where-Object { $_.Arguments -contains "pip" }
+        $pip.Executable | Should BeLike "*venv.candidate-*python.exe"
+        ($pip.Arguments -join " ") | Should Match "--require-hashes"
+        ($pip.Arguments -join " ") | Should Match "--only-binary=:all:"
+        $pip.Executable | Should Not Be "C:\base\python.exe"
+    }
+
+    It "revalidates the candidate Python executable immediately before invoking the process runner" {
+        $root = Join-Path $TestDrive "candidate-reparse"
+        $lock = Join-Path $TestDrive "candidate-reparse.lock"
+        $probePath = Join-Path $TestDrive "verify.py"
+        $realScripts = Join-Path $TestDrive "real-scripts"
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        New-Item -ItemType Directory -Path $realScripts -Force | Out-Null
+        New-Item -ItemType File -Path (Join-Path $realScripts "python.exe") -Force | Out-Null
+        Set-Content -Path $lock -Value "new"
+        New-Item -ItemType File -Path $probePath -Force | Out-Null
+        $candidatePython = $null
+        $runnerCalls = New-Object System.Collections.ArrayList
+        $runner = {
+            param([string]$Executable, [string[]]$Arguments)
+            [void]$runnerCalls.Add([pscustomobject]@{ Executable = $Executable; Arguments = $Arguments })
+            if ($Arguments -contains "venv") {
+                $candidate = $Arguments[$Arguments.Count - 1]
+                New-Item -ItemType Directory -Path $candidate -Force | Out-Null
+                $candidatePython = Join-Path $candidate "Scripts\python.exe"
+                New-Item -ItemType Junction -Path (Join-Path $candidate "Scripts") -Target $realScripts -ErrorAction Stop | Out-Null
+            }
+            [pscustomobject]@{ ExitCode = 0; Output = ""; Error = "" }
+        }.GetNewClosure()
+
+        try {
+            [void](New-VerifiedManagedVenv -BasePython (Join-Path $TestDrive "base-python.exe") -RuntimeRoot $root `
+                -RequirementsLockPath $lock -ProbePath $probePath -ProcessRunner $runner)
+        } catch {}
+        $runnerCalls.Count | Should Be 1
+        ($runnerCalls[0].Arguments -join "|") | Should Match "(^|\|)venv(\||$)"
+        ($runnerCalls[0].Arguments -join "|") | Should Not Match "(^|\|)pip(\||$)"
+    }
+
+    It "rejects a runtime root beneath a reparse point" {
+        $real = Join-Path $TestDrive "real"
+        $reparse = Join-Path $TestDrive "reparse"
+        New-Item -ItemType Directory -Path $real -Force | Out-Null
+        try {
+            New-Item -ItemType Junction -Path $reparse -Target $real -ErrorAction Stop | Out-Null
+        } catch {
+            return
+        }
+        New-Item -ItemType Directory -Path (Join-Path $real "runtime") -Force | Out-Null
+        $threw = $false
+        try {
+            [void](Get-ManagedVenvPaths -RuntimeRoot (Join-Path $reparse "runtime"))
+        } catch {
+            $threw = $true
+        }
+        $threw | Should Be $true
+    }
+
+    It "captures default runner stdout and stderr separately and rejects nonzero probes" {
+        $python = "C:\Users\user\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
+        $probe = Join-Path $TestDrive "probe.py"
+        Set-Content -Path $probe -Value 'import sys; print("{""ready"":true,""requirements_hash"":""aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa""}"); print("noise", file=sys.stderr); sys.exit(7)'
+
+        $result = Test-ManagedPythonRuntime -PythonPath $python -RequirementsHash ("a" * 64) -ProbePath $probe
+
+        $result.Ready | Should Be $false
+        $result.Reason | Should Be "probe_failed"
+    }
+
+    It "captures large stdout and stderr concurrently without losing either stream" {
+        $powershell = (Get-Command powershell.exe).Source
+        $script = '1..20000 | ForEach-Object { Write-Output ("OUT-" + $_); [Console]::Error.WriteLine("ERR-" + $_) }; exit 7'
+
+        $result = & (Get-Command Test-ManagedPythonRuntime).Module {
+            Invoke-DefaultProcessRunner $args[0] @("-NoProfile", "-NonInteractive", "-Command", $args[1])
+        } $powershell $script
+
+        $result.ExitCode | Should Be 7
+        $result.Output | Should Match "OUT-20000"
+        $result.Error | Should Match "ERR-20000"
+    }
+
+    It "reuses a valid active runtime without creating a candidate" {
+        $root = Join-Path $TestDrive "reuse"
+        $lock = Join-Path $TestDrive "reuse.lock"
+        $probePath = Join-Path $TestDrive "verify.py"
+        New-Item -ItemType Directory -Path (Join-Path $root "venv\Scripts") -Force | Out-Null
+        New-Item -ItemType File -Path (Join-Path $root "venv\Scripts\python.exe") -Force | Out-Null
+        Set-Content -Path $lock -Value "same"
+        New-Item -ItemType File -Path $probePath -Force | Out-Null
+        $hash = (Get-FileHash -LiteralPath $lock -Algorithm SHA256).Hash.ToLowerInvariant()
+        $calls = New-Object System.Collections.ArrayList
+        $runner = {
+            param([string]$Executable, [string[]]$Arguments)
+            [void]$calls.Add([pscustomobject]@{ Executable = $Executable; Arguments = $Arguments })
+            [pscustomobject]@{ ExitCode = 0; Output = ('{"ready":true,"requirements_hash":"' + $hash + '"}'); Error = "" }
+        }.GetNewClosure()
+
+        $result = New-VerifiedManagedVenv -BasePython "C:\base\python.exe" -RuntimeRoot $root -RequirementsLockPath $lock -ProbePath $probePath -ProcessRunner $runner
+
+        $result.Reused | Should Be $true
+        ($calls | Where-Object { $_.Arguments -contains "venv" }).Count | Should Be 0
+    }
+
+    It "rebuilds when the active runtime has a stale requirements hash" {
+        $root = Join-Path $TestDrive "stale"
+        $lock = Join-Path $TestDrive "stale.lock"
+        $probePath = Join-Path $TestDrive "verify.py"
+        New-Item -ItemType Directory -Path (Join-Path $root "venv\Scripts") -Force | Out-Null
+        New-Item -ItemType File -Path (Join-Path $root "venv\Scripts\python.exe") -Force | Out-Null
+        Set-Content -Path $lock -Value "new"
+        New-Item -ItemType File -Path $probePath -Force | Out-Null
+        $hash = (Get-FileHash -LiteralPath $lock -Algorithm SHA256).Hash.ToLowerInvariant()
+        $calls = New-Object System.Collections.ArrayList
+        $state = @{ ProbeCount = 0 }
+        $runner = {
+            param([string]$Executable, [string[]]$Arguments)
+            [void]$calls.Add([pscustomobject]@{ Executable = $Executable; Arguments = $Arguments })
+            if ($Arguments -contains "venv") {
+                $candidate = $Arguments[$Arguments.Count - 1]
+                New-Item -ItemType Directory -Path (Join-Path $candidate "Scripts") -Force | Out-Null
+                New-Item -ItemType File -Path (Join-Path $candidate "Scripts\python.exe") -Force | Out-Null
+            }
+            $state.ProbeCount++
+            if ($state.ProbeCount -eq 1) {
+                return [pscustomobject]@{ ExitCode = 0; Output = '{"ready":true,"requirements_hash":"old"}'; Error = "" }
+            }
+            [pscustomobject]@{ ExitCode = 0; Output = ('{"ready":true,"requirements_hash":"' + $hash + '"}'); Error = "" }
+        }.GetNewClosure()
+
+        $result = New-VerifiedManagedVenv -BasePython "C:\base\python.exe" -RuntimeRoot $root -RequirementsLockPath $lock -ProbePath $probePath -ProcessRunner $runner
+
+        $result.Reused | Should Be $false
+        $calls.Count | Should BeGreaterThan 1
+    }
+
+    It "preserves the active runtime when candidate creation fails" {
+        $root = Join-Path $TestDrive "failed-candidate"
+        $lock = Join-Path $TestDrive "failed.lock"
+        $probePath = Join-Path $TestDrive "verify.py"
+        $activePython = Join-Path $root "venv\Scripts\python.exe"
+        New-Item -ItemType Directory -Path (Split-Path $activePython) -Force | Out-Null
+        Set-Content -Path $activePython -Value "active"
+        Set-Content -Path $lock -Value "new"
+        New-Item -ItemType File -Path $probePath -Force | Out-Null
+        $runner = {
+            param([string]$Executable, [string[]]$Arguments)
+            if ($Arguments -contains "venv") { return [pscustomobject]@{ ExitCode = 9; Output = ""; Error = "failed" } }
+            [pscustomobject]@{ ExitCode = 0; Output = ""; Error = "" }
+        }
+
+        try { [void](New-VerifiedManagedVenv -BasePython "C:\base\python.exe" -RuntimeRoot $root -RequirementsLockPath $lock -ProbePath $probePath -ProcessRunner $runner) } catch {}
+
+        (Get-Content -Raw $activePython).Trim() | Should Be "active"
+    }
+
+    It "rolls back the active runtime after post-promotion verification fails" {
+        $root = Join-Path $TestDrive "rollback"
+        $lock = Join-Path $TestDrive "rollback.lock"
+        $probePath = Join-Path $TestDrive "verify.py"
+        $activePython = Join-Path $root "venv\Scripts\python.exe"
+        New-Item -ItemType Directory -Path (Split-Path $activePython) -Force | Out-Null
+        Set-Content -Path $activePython -Value "active"
+        Set-Content -Path $lock -Value "new"
+        New-Item -ItemType File -Path $probePath -Force | Out-Null
+        $hash = (Get-FileHash -LiteralPath $lock -Algorithm SHA256).Hash.ToLowerInvariant()
+        $probeCount = 0
+        $runner = {
+            param([string]$Executable, [string[]]$Arguments)
+            if ($Arguments -contains "venv") {
+                $candidate = $Arguments[$Arguments.Count - 1]
+                New-Item -ItemType Directory -Path (Join-Path $candidate "Scripts") -Force | Out-Null
+                Set-Content -Path (Join-Path $candidate "Scripts\python.exe") -Value "candidate"
+            }
+            if ($Arguments -contains $probePath) {
+                $script:probeCount++
+                if ($script:probeCount -eq 2) { return [pscustomobject]@{ ExitCode = 0; Output = '{"ready":false,"requirements_hash":"bad"}'; Error = "" } }
+            }
+            [pscustomobject]@{ ExitCode = 0; Output = ('{"ready":true,"requirements_hash":"' + $hash + '"}'); Error = "" }
+        }.GetNewClosure()
+
+        try { [void](New-VerifiedManagedVenv -BasePython "C:\base\python.exe" -RuntimeRoot $root -RequirementsLockPath $lock -ProbePath $probePath -ProcessRunner $runner) } catch {}
+
+        (Get-Content -Raw $activePython).Trim() | Should Be "active"
+    }
+
+    It "rejects a backup path beneath a reparse point" {
+        $root = Join-Path $TestDrive "reparse-backup"
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        $paths = Get-ManagedVenvPaths -RuntimeRoot $root
+        $backup = Join-Path $root "venv.backup-test"
+        New-Item -ItemType Directory -Path $backup -Force | Out-Null
+        $result = & (Get-Command New-VerifiedManagedVenv).Module { Test-NoReparsePointInPath $args[0] } $backup
+        $result | Should Be $true
+    }
+
+    It "returns a null backup after successful cleanup" {
+        $root = Join-Path $TestDrive "cleanup"
+        $lock = Join-Path $TestDrive "cleanup.lock"
+        $probePath = Join-Path $TestDrive "verify.py"
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+        Set-Content -Path $lock -Value "new"
+        New-Item -ItemType File -Path $probePath -Force | Out-Null
+        $hash = (Get-FileHash -LiteralPath $lock -Algorithm SHA256).Hash.ToLowerInvariant()
+        $runner = {
+            param([string]$Executable, [string[]]$Arguments)
+            if ($Arguments -contains "venv") {
+                $candidate = $Arguments[$Arguments.Count - 1]
+                New-Item -ItemType Directory -Path (Join-Path $candidate "Scripts") -Force | Out-Null
+                New-Item -ItemType File -Path (Join-Path $candidate "Scripts\python.exe") -Force | Out-Null
+            }
+            [pscustomobject]@{ ExitCode = 0; Output = ('{"ready":true,"requirements_hash":"' + $hash + '"}'); Error = "" }
+        }.GetNewClosure()
+
+        $result = New-VerifiedManagedVenv -BasePython "C:\base\python.exe" -RuntimeRoot $root -RequirementsLockPath $lock -ProbePath $probePath -ProcessRunner $runner
+
+        $result.Backup | Should Be $null
+        (Get-ChildItem -LiteralPath $root -Filter "venv.backup-*" -ErrorAction SilentlyContinue).Count | Should Be 0
+    }
+}

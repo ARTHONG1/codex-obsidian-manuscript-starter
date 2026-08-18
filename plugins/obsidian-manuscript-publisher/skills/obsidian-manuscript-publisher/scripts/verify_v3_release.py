@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,19 @@ ROOT = Path(__file__).resolve().parent
 VALIDATOR = ROOT / "validate_manuscript.py"
 RENDERER = ROOT / "render_manuscript.py"
 EXPORTER = ROOT / "export_publication_bundle.py"
+
+
+class SmokeFailure(RuntimeError):
+    def __init__(self, stage: str, code: str | None = None):
+        super().__init__(stage)
+        self.stage = stage
+        self.code = code or f"{stage}_failed"
+
+
+def _run_stage(stage: str, command: list[str]) -> None:
+    result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if result.returncode != 0:
+        raise SmokeFailure(stage)
 
 
 def _package(root: Path) -> Path:
@@ -71,23 +85,44 @@ def main(argv: list[str] | None = None) -> int:
         args.output.mkdir(parents=True, exist_ok=True)
         version = _package(args.output)
         report = version / "asset-validation.json"
-        for command in (
-            [sys.executable, str(VALIDATOR), str(version / "manuscript.json"), str(version / "asset-manifest.json"), str(report)],
-            [sys.executable, str(RENDERER), str(version / "manuscript.json"), str(version)],
-        ):
-            completed = subprocess.run(command, capture_output=True, text=True)
-            if completed.returncode != 0:
-                raise RuntimeError("v3_validation_or_render_failed")
-        result = subprocess.run([sys.executable, str(EXPORTER), "--source-version-dir", str(version), "--publication-root", str(args.output / "Desktop" / "옵시디언 원고"), "--project-destination-root", "V3 Verification", "--vault-path", str(args.output / "Vault")], capture_output=True, text=True)
+        _run_stage("validation", [sys.executable, str(VALIDATOR), str(version / "manuscript.json"), str(version / "asset-manifest.json"), str(report)])
+        _run_stage("render", [sys.executable, str(RENDERER), str(version / "manuscript.json"), str(version)])
+        export_command = [sys.executable, str(EXPORTER), "--source-version-dir", str(version), "--publication-root", str(args.output / "Desktop" / "옵시디언 원고"), "--project-destination-root", "V3 Verification", "--vault-path", str(args.output / "Vault")]
+        result = subprocess.run(export_command, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if result.returncode != 0:
-            raise RuntimeError("v3_desktop_export_failed")
+            export_code = "export_failed"
+            safe_export_codes = {
+                "python_dependency_missing",
+                "unsafe_path",
+                "unmanaged_root_file",
+                "unexpected_root_file",
+                "filesystem_error",
+                "invalid_package",
+                "publication_lock_timeout",
+            }
+            try:
+                export_payload = json.loads(result.stdout.lstrip("\ufeff"))
+                export_code = str(export_payload.get("code") or export_code)
+            except (TypeError, ValueError):
+                combined_output = f"{result.stdout}\n{result.stderr}"
+                export_code = next((code for code in safe_export_codes if code in combined_output), export_code)
+                if export_code == "export_failed":
+                    exception_names = re.findall(r"\\b([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception))\\b", result.stderr)
+                    if exception_names:
+                        export_code = f"export_exception_{exception_names[-1]}"
+                    else:
+                        export_code = f"export_process_exit_{abs(int(result.returncode))}"
+            raise SmokeFailure("export", export_code)
         payload = json.loads(result.stdout)
         if payload.get("status") not in {"exported", "already_exported"}:
             raise RuntimeError("v3_desktop_export_not_verified")
         print(json.dumps({"status": "ready", "desktop_export": payload.get("status"), "source_version": "v0.1"}, ensure_ascii=False))
         return 0
+    except SmokeFailure as error:
+        print(json.dumps({"status": "failed", "stage": error.stage, "code": error.code, "error_type": type(error).__name__}, ensure_ascii=False))
+        return 1
     except Exception as error:
-        print(json.dumps({"status": "failed", "code": "v3_release_verification_failed", "error": type(error).__name__}, ensure_ascii=False))
+        print(json.dumps({"status": "failed", "stage": "setup", "code": "v3_release_verification_failed", "error_type": type(error).__name__}, ensure_ascii=False))
         return 1
 
 

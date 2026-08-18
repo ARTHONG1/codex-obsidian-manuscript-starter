@@ -9,7 +9,7 @@ from typing import Any
 from extract_docx_template import extract_docx_evidence
 from extract_image_template import extract_image_evidence
 from extract_pdf_template import extract_pdf_evidence
-from template_source import inspect_source_set
+from template_source import TemplateSourceError, snapshot_source_set
 
 
 class TemplateAnalysisError(ValueError):
@@ -44,28 +44,28 @@ def analyze_sources(
     observations_path: str | Path | None = None,
     output_dir: str | Path | None = None,
 ) -> dict[str, Any]:
-    inspection = inspect_source_set(paths)
-    if inspection.get("code") != "source_set_ready":
-        raise TemplateAnalysisError(str(inspection.get("code")))
-    evidence: list[dict[str, Any]] = []
-    for manifest in inspection["sources"]:
-        path = next(Path(item) for item in paths if Path(item).name == manifest["file_name"])
-        suffix = path.suffix.lower()
-        if suffix == ".docx":
-            value = extract_docx_evidence(path)
-        elif suffix == ".pdf":
-            value = extract_pdf_evidence(path)
-        else:
-            value = extract_image_evidence(path)
-        evidence.append({"source": manifest["file_name"], "evidence": value})
-    analysis = {
-        "schema_version": 1,
-        "status": "safe_for_preview",
-        "source_manifest": inspection["sources"],
-        "evidence": evidence,
-        "observations": _load_observations(observations_path),
-        "layout_contract": {"blocks": [{"component": "title", "section_id": "title"}, {"component": "paragraphs", "section_id": "body"}]},
-    }
+    try:
+        with snapshot_source_set(paths) as snapshots:
+            evidence: list[dict[str, Any]] = []
+            for source in snapshots:
+                suffix = Path(source.safe_name).suffix.lower()
+                if suffix == ".docx":
+                    value = extract_docx_evidence(source.path)
+                elif suffix == ".pdf":
+                    value = extract_pdf_evidence(source.path)
+                else:
+                    value = extract_image_evidence(source.path)
+                evidence.append({"source": source.safe_name, "evidence": value})
+            analysis = {
+                "schema_version": 1,
+                "status": "safe_for_preview",
+                "source_manifest": [source.to_manifest() for source in snapshots],
+                "evidence": evidence,
+                "observations": _load_observations(observations_path),
+                "layout_contract": {"blocks": [{"component": "title", "section_id": "title"}, {"component": "paragraphs", "section_id": "body"}]},
+            }
+    except TemplateSourceError as exc:
+        raise TemplateAnalysisError(str(exc)) from None
     if output_dir is not None:
         output = Path(output_dir)
         output.mkdir(parents=True, exist_ok=True)

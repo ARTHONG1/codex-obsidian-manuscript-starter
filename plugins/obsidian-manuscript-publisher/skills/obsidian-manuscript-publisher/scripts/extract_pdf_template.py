@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pdfplumber
 from pypdf import PdfReader
+from template_source import MAX_SOURCE_BYTES
 
 
 MAX_PAGES = 300
@@ -23,6 +24,8 @@ _FORBIDDEN_MARKERS = (
 def extract_pdf_evidence(path: str | Path) -> dict[str, object]:
     source = Path(path)
     try:
+        if source.stat().st_size > MAX_SOURCE_BYTES:
+            raise ValueError("template_source_too_large")
         raw = source.read_bytes()
         lowered = raw.lower()
         if any(marker in lowered for marker in _FORBIDDEN_MARKERS):

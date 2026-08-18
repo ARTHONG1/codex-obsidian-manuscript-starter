@@ -52,6 +52,32 @@ class TemplateAnalysisPipelineTests(unittest.TestCase):
             self.assertEqual(result["evidence"][0]["evidence"]["paragraph_count"], 1)
             self.assertNotIn("source prose must not be copied", json.dumps(result))
 
+    def test_extractors_receive_only_snapshot_paths_and_analysis_is_path_free(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "example.png"
+            Image.new("RGB", (40, 20), "white").save(source)
+            output = root / "candidate"
+            observed = []
+            original = analysis.extract_image_evidence
+
+            def extractor(path):
+                observed.append(Path(path))
+                return original(path)
+
+            analysis.extract_image_evidence = extractor
+            try:
+                result = analysis.analyze_sources([source], output_dir=output)
+            finally:
+                analysis.extract_image_evidence = original
+            self.assertEqual(len(observed), 1)
+            self.assertNotEqual(observed[0], source)
+            self.assertTrue(observed[0].name == source.name)
+            self.assertTrue(observed[0].parent.name.startswith("codex-template-snapshot-"))
+            serialized = json.dumps(result) + (output / "source-analysis.json").read_text(encoding="utf-8")
+            self.assertNotIn(str(source), serialized)
+            self.assertNotIn(str(observed[0].parent), serialized)
+
 
 if __name__ == "__main__":
     unittest.main()

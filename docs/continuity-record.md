@@ -10,6 +10,8 @@ For example, a report may say that an audit counted 10 P1 findings while this re
 
 ## This documentation pass
 
+- v0.6.0 release verification is local-only: the allowlisted builder and pre-extraction verifier must pass before any publication step. No upload, push, tag, or GitHub release is authorized by this record.
+
 - Executed focused documentation contract: 5 tests, 5 passed.
 - Executed full Python suite after all remediation waves: 203 tests, 202 passed, 0 failed, 1 skipped.
 - Executed InstallerContract: 44 passed, 0 failed. Executed SecretScan: 3 passed, 0 failed.

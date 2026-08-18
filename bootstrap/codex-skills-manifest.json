@@ -1,0 +1,207 @@
+{
+  "schemaVersion": 1,
+  "skills": [
+    {
+      "id": "obsidian-manuscript-setup",
+      "sourceRoot": "plugins/obsidian-manuscript-publisher/skills/obsidian-manuscript-setup",
+      "destination": "obsidian-manuscript-setup",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "bc380ad61f9d0449afdfa4139d2217e101601c0bb201149895e165c401944bee"
+        }
+      ]
+    },
+    {
+      "id": "obsidian-manuscript-publisher",
+      "sourceRoot": "plugins/obsidian-manuscript-publisher/skills/obsidian-manuscript-publisher",
+      "destination": "obsidian-manuscript-publisher",
+      "files": [
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "39b9bac3754f2cca6ef065e1a8f849a6aebc79febae4b84158aca2c4ca2d8e2b"
+        },
+        {
+          "path": "references/adaptive-blog-workflow.md",
+          "sha256": "54014e88b237716bbeab71ba22a24cc808550e15e350ef0cd5c04f32a7a16aa0"
+        },
+        {
+          "path": "references/asset-policy.md",
+          "sha256": "6aacbc2e015bab1094408381c43735112f30b218d15a897fed0ea839c915743d"
+        },
+        {
+          "path": "references/blog-editorial-policy.md",
+          "sha256": "bc3a279fce667b80e1253da038c622e6eb93ce3ee6f590fb8c05fd14f3ea0ce6"
+        },
+        {
+          "path": "references/blog-schema.md",
+          "sha256": "f568927f2f784c0a6c00cb287b12307daf2f466f963ab5e2a5fa1154319c9d18"
+        },
+        {
+          "path": "references/book-a4-workflow.md",
+          "sha256": "c890ef9fe1b6c910f65c6554cc8065bae6c9eccb05acced5beedb88393fb766c"
+        },
+        {
+          "path": "references/conversation-workflow.md",
+          "sha256": "4fa73a89a7847263a568a04c03e7f6b16e8b3f46f2d5e04333b32fa181655c5c"
+        },
+        {
+          "path": "references/custom-manuscript-workflow.md",
+          "sha256": "3490c1db8d2374c8c3f40c65c3c278aa9b0f7658b92d96c16e89144aaa95ed88"
+        },
+        {
+          "path": "references/deletion-workflow.md",
+          "sha256": "5d2c6b0746a37161844061f6366d0249d21d45574999ff44c237da46a5b4f4fc"
+        },
+        {
+          "path": "references/legacy-book-contracts.md",
+          "sha256": "a125120f00d91e1f898d8d518c493c9f29a9d2c69d0138f55b381e9140eb63b0"
+        },
+        {
+          "path": "references/manuscript-schema.md",
+          "sha256": "dcf267ad3592e9d8dd6070f6727d1f94c72c5bb350ba4806e46f1b78169eb148"
+        },
+        {
+          "path": "references/master-editorial-profile.md",
+          "sha256": "e651a0ea38952188ec3774edbf2e7df853da1f0709b842abae0f241d0a480321"
+        },
+        {
+          "path": "references/publication-library.md",
+          "sha256": "a95b0b162f27ae1b004cd02f63c0bad71769e42258e798a78aabbd6c23889d3b"
+        },
+        {
+          "path": "scripts/analyze_template_sources.py",
+          "sha256": "da4c4bc2671f8d5563f142cf98c1ea5fa9ccf9addf7f8db37ded8554d9a45e80"
+        },
+        {
+          "path": "scripts/archive_conversation.py",
+          "sha256": "d08d2058ba54b63423d503399fae2d389dbbed3162f2c4999702a3449bb122b2"
+        },
+        {
+          "path": "scripts/book_v3.py",
+          "sha256": "a6c227061d1aaf91a12264ffbe8d5b4da71f20f67fa894ff5b79fe3bb214b87f"
+        },
+        {
+          "path": "scripts/build_template_candidate.py",
+          "sha256": "7f0a0f8ff61fc17dcc1587892a86f88ac67f09b38d426d01bd8b3f48a110a5c0"
+        },
+        {
+          "path": "scripts/delete_conversation_bundle.py",
+          "sha256": "a1fd566070e6d3ea280c9678abec0802fad6dca3f2c72304f5e5da7a143e0a00"
+        },
+        {
+          "path": "scripts/editorial_quality.py",
+          "sha256": "24eda63523057d39b27efb5cd4b5f3bc8ef18e25a53b3f53809185135df4d16f"
+        },
+        {
+          "path": "scripts/export_publication_bundle.py",
+          "sha256": "b279c559904ff11e6df4c9ad62b52f278b4d44301ddbc1ebb5b4c8046a4309ef"
+        },
+        {
+          "path": "scripts/extract_docx_template.py",
+          "sha256": "919d961eae8b6a42c65c59aa5859fc17c5a71266f00e9bd0263026bac9ad1c42"
+        },
+        {
+          "path": "scripts/extract_image_template.py",
+          "sha256": "a1e9ee6aec539f5cf137e03692c1a97b62d25a6c15c3c4d12eaea023409b0dc4"
+        },
+        {
+          "path": "scripts/extract_pdf_template.py",
+          "sha256": "4e85bac02d3c59f554a92c8430fce48ec0fa6bb581eab399d9aafb19f4046bd3"
+        },
+        {
+          "path": "scripts/finalize_custom_publication.py",
+          "sha256": "b7815d88094b7c1b2b8f466019106075a72d0aedeb42374676335f06289c3f6f"
+        },
+        {
+          "path": "scripts/finalize_publication.py",
+          "sha256": "2b5354af7c7a972420fd97c38829ac6f3b864360e95ee8ef8fd74a3ed07f293c"
+        },
+        {
+          "path": "scripts/layout_plan.py",
+          "sha256": "af35b0efd847776b90b3c5ab51d3752779f706adec411ccaa295c7392548ef5a"
+        },
+        {
+          "path": "scripts/next_version.py",
+          "sha256": "1834c84bbf150068560b48df48c6d194967afc2bd058281740d5362ce9f2781e"
+        },
+        {
+          "path": "scripts/publish_manuscript_version.py",
+          "sha256": "d49ed8a613ef0c6629217c0955490b144bbba83365c74d10eaa985c6408ecdf0"
+        },
+        {
+          "path": "scripts/refresh_material_card.py",
+          "sha256": "317b1e9436335b8cc8795a745023b29975d8682daa4417b55b72854d7be5f9d8"
+        },
+        {
+          "path": "scripts/register_custom_template.py",
+          "sha256": "f58f5eab8176220eaa7e92b7675f180653300b8c8cdc46f45d52689a069d777f"
+        },
+        {
+          "path": "scripts/render_blog.py",
+          "sha256": "5dd407217cb6e4a608140c88e2b4f174235e3399a4ddddf25d5fcd48d5dbae8c"
+        },
+        {
+          "path": "scripts/render_custom_manuscript.py",
+          "sha256": "b0d60de3116ecf7e2bb2b5807254a0466a4b2bb7ed729dc05b853a83cd076cba"
+        },
+        {
+          "path": "scripts/render_manuscript.py",
+          "sha256": "39f21e09f1c8a9dc8c9cb39be08c1e588396f7f60186100a54a349533d3b0caa"
+        },
+        {
+          "path": "scripts/render_template_preview.py",
+          "sha256": "58f8345cb719f33bd3d9fe7631442ad67722043fe5b5ba533383f1f69249cdf6"
+        },
+        {
+          "path": "scripts/resolve_custom_template.py",
+          "sha256": "5306946135aad1fd8ae85212a22d0a2f2d560f791f8702c9643b7b5080d48b99"
+        },
+        {
+          "path": "scripts/save_via_obsidian_rest.py",
+          "sha256": "7a7e5a0cd9199cf279af239fbd7f67929bf715510848bcf848ed1abb0a775900"
+        },
+        {
+          "path": "scripts/select_book_template.py",
+          "sha256": "55c5cbeb8ad9391f750bd4b42dba0fd5dbe109bfe9daab20d52ed216be298d00"
+        },
+        {
+          "path": "scripts/template_candidate_state.py",
+          "sha256": "8b68009a519a78023b15aac6c8152302d8dd68e257c5ce86e88df26559139d3a"
+        },
+        {
+          "path": "scripts/template_model.py",
+          "sha256": "76169cc83b42d0cddd3617d1460847f0cfbd70fafef561abf02d75263161117e"
+        },
+        {
+          "path": "scripts/template_source.py",
+          "sha256": "5e9091ceee3cdde40efc40f5a7eda3fe570faabee689d03609d4af5ba87622c3"
+        },
+        {
+          "path": "scripts/validate_blog.py",
+          "sha256": "4321a144aff789576e962b78c31b5bf1c7e1cb45b96dafd226c74afbd202d45f"
+        },
+        {
+          "path": "scripts/validate_manuscript.py",
+          "sha256": "fe1499318faa4dc517d354cabdddd8a4f275f8af4f3a1da6a4a5f2482ef21ddb"
+        },
+        {
+          "path": "scripts/validate_template_candidate.py",
+          "sha256": "9e093177b933499b24506f279a0c736c9268d579810c98da9f06ceb055b87139"
+        },
+        {
+          "path": "scripts/verify_skill_sync.py",
+          "sha256": "f1ce08f65b24024d5d57c041c24069185e7299bd8e556d45a160507481b65e36"
+        },
+        {
+          "path": "scripts/verify_v3_release.py",
+          "sha256": "6ab7982c198dc4676f6dc98c8684d21360206ec5e6412e4890dd0c6f9bddee79"
+        },
+        {
+          "path": "SKILL.md",
+          "sha256": "9ae9f127196f677549693030e1b58547ce249fbcc1d6bc99e109f67532f51ce7"
+        }
+      ]
+    }
+  ]
+}

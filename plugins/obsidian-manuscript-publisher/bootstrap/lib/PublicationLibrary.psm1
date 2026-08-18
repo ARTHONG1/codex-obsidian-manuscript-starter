@@ -327,4 +327,4 @@ function Test-PublicationLibrary {
     }
 }
 
-Export-ModuleMember -Function Resolve-PublicationRoot, Initialize-PublicationLibrary, New-VaultFolderShortcut, Test-PublicationLibrary
+Export-ModuleMember -Function Resolve-PublicationRoot, Initialize-PublicationLibrary, New-VaultFolderShortcut, Test-PublicationLibrary, Assert-NoExistingReparsePoint, Assert-PublicationRootIsSafe

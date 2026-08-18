@@ -79,9 +79,9 @@ class ObsidianManuscriptWorkspaceTests(unittest.TestCase):
         ]:
             self.assertIn(required_text, skill)
 
-    def test_public_metadata_exposes_blog_profile_as_version_0_5_1(self):
+    def test_public_metadata_exposes_blog_profile_as_version_0_5_2(self):
         manifest = json.loads(PLUGIN_MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "0.5.1")
+        self.assertEqual(manifest["version"], "0.6.0")
         self.assertIn("blog", manifest["description"].lower())
         self.assertIn("blog", manifest["interface"]["longDescription"].lower())
 
@@ -95,14 +95,16 @@ class ObsidianManuscriptWorkspaceTests(unittest.TestCase):
         ]:
             self.assertIn(required_text, readme)
 
-    def test_every_beginner_install_reference_is_pinned_to_the_manifest_version(self):
+    def test_beginner_install_reference_keeps_release_pin_outside_local_marketplace_source(self):
         manifest = json.loads(PLUGIN_MANIFEST.read_text(encoding="utf-8"))
         version = manifest["version"]
         tag = f"v{version}"
         marketplace = json.loads(MARKETPLACE.read_text(encoding="utf-8"))
         source = marketplace["plugins"][0]["source"]
 
-        self.assertEqual(source["ref"], tag)
+        self.assertEqual(set(source), {"source", "path"})
+        self.assertEqual(source["source"], "local")
+        self.assertEqual(source["path"], "./plugins/obsidian-manuscript-publisher")
         for document in (README, INSTALL_PROMPT, RELEASE):
             self.assertIn(tag, document.read_text(encoding="utf-8"))
         self.assertIn(f"version: {version}", CITATION.read_text(encoding="utf-8"))
@@ -137,9 +139,15 @@ class ObsidianManuscriptWorkspaceTests(unittest.TestCase):
 
     def test_default_prompt_routes_only_the_action_requested_by_the_user(self):
         metadata = OPENAI_YAML.read_text(encoding="utf-8")
+        prompt = next(
+            line.split(":", 1)[1].strip().strip('"')
+            for line in metadata.splitlines()
+            if line.startswith("  default_prompt:")
+        )
         self.assertIn("$obsidian-manuscript-publisher", metadata)
-        self.assertIn("저장하거나", metadata)
-        self.assertIn("선택한 출력 프로필", metadata)
+        self.assertLessEqual(len(prompt), 128)
+        self.assertIn("저장하거나", prompt)
+        self.assertIn("A4·블로그·맞춤 출력", prompt)
 
     def test_skill_requires_blog_source_references_to_resolve_in_the_active_bundle(self):
         skill = SKILL.read_text(encoding="utf-8")
@@ -263,8 +271,14 @@ class ObsidianManuscriptWorkspaceTests(unittest.TestCase):
 
     def test_agent_metadata_mentions_verified_desktop_publication_bundles(self):
         metadata = OPENAI_YAML.read_text(encoding="utf-8")
-        self.assertIn("검증 완료 바탕화면 출판함", metadata)
-        self.assertIn("Vault 게시와 바탕화면 내보내기 결과를 구분", metadata)
+        prompt = next(
+            line.split(":", 1)[1].strip().strip('"')
+            for line in metadata.splitlines()
+            if line.startswith("  default_prompt:")
+        )
+        self.assertLessEqual(len(prompt), 128)
+        self.assertIn("Obsidian", prompt)
+        self.assertIn("발행해 줘", prompt)
 
 
 if __name__ == "__main__":

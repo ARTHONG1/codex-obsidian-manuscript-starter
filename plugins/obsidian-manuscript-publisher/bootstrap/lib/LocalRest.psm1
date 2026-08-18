@@ -171,36 +171,85 @@ function Install-PinnedLocalRestPlugin {
     }
 }
 
+function Get-CurlExecutable {
+    [CmdletBinding()]
+    param([scriptblock]$CommandResolver = { Get-Command curl.exe -ErrorAction SilentlyContinue })
+
+    $command = & $CommandResolver
+    $path = if ($command -is [string]) { $command } elseif ($null -ne $command) { [string]$command.Source } else { "" }
+    if ([string]::IsNullOrWhiteSpace($path) -or -not [IO.Path]::IsPathRooted($path)) {
+        throw "curl_unavailable: install or expose curl.exe on PATH, then rerun doctor."
+    }
+    try { return [IO.Path]::GetFullPath($path) }
+    catch { throw "curl_unavailable: install or expose curl.exe on PATH, then rerun doctor." }
+}
+
 function Wait-ForLocalRest {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)] [string]$DataPath,
-        [int]$TimeoutSeconds = 45
+        [int]$TimeoutSeconds = 45,
+        [scriptblock]$CommandResolver = { Get-Command curl.exe -ErrorAction SilentlyContinue },
+        [scriptblock]$ReadinessReader = { },
+        [scriptblock]$CurlInvoker
     )
 
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     $temporary = Join-Path ([IO.Path]::GetTempPath()) ("codex-obsidian-ready-" + [guid]::NewGuid().ToString("N"))
+    $lastReason = "configuration_missing"
     try {
         New-Item -ItemType Directory -Path $temporary -Force | Out-Null
         $certificatePath = Join-Path $temporary "local-rest-ca.pem"
+        try {
+            $curl = Get-CurlExecutable -CommandResolver $CommandResolver
+        } catch {
+            $curl = $null
+            $lastReason = "curl_unavailable"
+        }
         while ([DateTime]::UtcNow -lt $deadline) {
-            if (Test-Path -LiteralPath $DataPath) {
-                $data = Get-Content -Raw -LiteralPath $DataPath | ConvertFrom-Json
-                $port = [int]$data.port
-                # StrictMode turns a missing property into a terminating error, so probe for it.
-                $cryptoProperty = $data.PSObject.Properties["crypto"]
-                $certificate = if ($cryptoProperty -and $null -ne $cryptoProperty.Value) { [string]$cryptoProperty.Value.cert } else { "" }
-                if ($port -gt 0 -and $port -lt 65536 -and -not [string]::IsNullOrWhiteSpace($certificate)) {
-                    [IO.File]::WriteAllText($certificatePath, $certificate, [Text.UTF8Encoding]::new($false))
-                    & curl.exe --fail --silent --show-error --proto "=https" --max-redirs 0 --cacert $certificatePath "https://127.0.0.1:$port/" 2>$null | Out-Null
-                    if ($LASTEXITCODE -eq 0) {
-                        return [pscustomobject]@{ DataPath = $DataPath; Port = $port }
+            try {
+                & $ReadinessReader | Out-Null
+                if (-not (Test-Path -LiteralPath $DataPath -PathType Leaf)) {
+                    $lastReason = "configuration_missing"
+                } else {
+                    $data = Get-Content -Raw -LiteralPath $DataPath | ConvertFrom-Json
+                    $portProperty = $data.PSObject.Properties["port"]
+                    $port = if ($portProperty) { [int]$portProperty.Value } else { 0 }
+                    $cryptoProperty = $data.PSObject.Properties["crypto"]
+                    $certificate = if ($cryptoProperty -and $null -ne $cryptoProperty.Value) {
+                        [string]$cryptoProperty.Value.cert
+                    } else { "" }
+                    if ($port -lt 1 -or $port -gt 65535) {
+                        $lastReason = "configuration_port_invalid"
+                    } elseif ([string]::IsNullOrWhiteSpace($certificate)) {
+                        $lastReason = "configuration_certificate_missing"
+                    } elseif ($null -eq $curl) {
+                        $lastReason = "curl_unavailable"
+                    } else {
+                        [IO.File]::WriteAllText($certificatePath, $certificate, [Text.UTF8Encoding]::new($false))
+                        $arguments = @("--fail", "--silent", "--show-error", "--proto", "=https", "--max-redirs", "0", "--cacert", $certificatePath, "https://127.0.0.1:$port/")
+                        if ($CurlInvoker) {
+                            $exitCode = & $CurlInvoker $curl $arguments
+                        } else {
+                            & $curl @arguments 2>$null | Out-Null
+                            $exitCode = $LASTEXITCODE
+                        }
+                        if ($exitCode -eq 0) {
+                            return [pscustomobject]@{ DataPath = $DataPath; Port = $port }
+                        }
+                        $lastReason = "local_rest_not_listening"
                     }
                 }
+            } catch [System.Management.Automation.ItemNotFoundException] {
+                $lastReason = "configuration_missing"
+            } catch [System.Management.Automation.RuntimeException] {
+                $lastReason = "configuration_not_ready"
+            } catch [System.IO.IOException] {
+                $lastReason = "configuration_not_ready"
             }
-            Start-Sleep -Milliseconds 500
+            if ([DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 500 }
         }
-        throw "Local REST API did not become ready before the deadline. Keep Obsidian open and retry the doctor command."
+        throw "local_rest_not_ready: $lastReason. Keep Obsidian open, verify the Local REST plugin is enabled, and rerun doctor."
     }
     finally {
         if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Recurse -Force }
@@ -261,7 +310,8 @@ function Invoke-LoopbackRestRequest {
             $arguments += @("--header", "Content-Type: text/markdown; charset=utf-8", "--data-binary", "@$bodyPath")
         }
         $arguments += $Uri
-        & curl.exe @arguments 2>$null | Out-Null
+        $curl = Get-CurlExecutable
+        & $curl @arguments 2>$null | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "Local REST API request failed for $Method $Uri." }
         if (Test-Path -LiteralPath $responsePath) { return [IO.File]::ReadAllBytes($responsePath) }
         return [byte[]]@()
@@ -297,4 +347,4 @@ function Test-LocalRestRoundTrip {
     }
 }
 
-Export-ModuleMember -Function Resolve-LocalRestLockPath, Get-LocalRestLock, Assert-LocalRestPluginTargetIsSafe, Test-PinnedLocalRestPluginInstallation, Set-EnabledCommunityPlugin, Enable-PinnedLocalRestPlugin, Install-PinnedLocalRestPlugin, Wait-ForLocalRest, Test-LocalRestRoundTrip
+Export-ModuleMember -Function Resolve-LocalRestLockPath, Get-LocalRestLock, Assert-LocalRestPluginTargetIsSafe, Test-PinnedLocalRestPluginInstallation, Set-EnabledCommunityPlugin, Enable-PinnedLocalRestPlugin, Install-PinnedLocalRestPlugin, Get-CurlExecutable, Wait-ForLocalRest, Test-LocalRestRoundTrip

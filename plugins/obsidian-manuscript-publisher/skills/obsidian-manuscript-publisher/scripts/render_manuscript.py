@@ -655,6 +655,9 @@ if __name__ == "__main__":
         raise SystemExit("Usage: render_manuscript.py <manuscript.json> <output-directory>")
     try:
         main(Path(sys.argv[1]), Path(sys.argv[2]))
+    except FileNotFoundError:
+        print("ERROR: manuscript_input_missing", file=sys.stderr)
+        raise SystemExit(1) from None
     except Exception as error:
         print(f"ERROR: {type(error).__name__}: {error}", file=sys.stderr)
         raise SystemExit(1) from None

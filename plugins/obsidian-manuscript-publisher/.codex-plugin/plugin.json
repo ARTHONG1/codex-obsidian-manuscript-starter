@@ -1,6 +1,6 @@
 {
   "name": "obsidian-manuscript-publisher",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Archive verified Codex conversations and publish A4 Korean manuscripts or portable blog articles in Obsidian.",
   "author": {
     "name": "AI찬우쌤",
@@ -9,7 +9,13 @@
   "homepage": "https://classddok.com/",
   "repository": "https://github.com/ARTHONG1/codex-obsidian-manuscript-starter",
   "license": "MIT",
-  "keywords": ["obsidian", "manuscript", "codex", "education", "automation"],
+  "keywords": [
+    "obsidian",
+    "manuscript",
+    "codex",
+    "education",
+    "automation"
+  ],
   "skills": "./skills/",
   "interface": {
     "displayName": "Obsidian Manuscript Publisher",
@@ -18,6 +24,10 @@
     "developerName": "AI Agent Automation contributors",
     "category": "Productivity",
     "capabilities": [],
-    "defaultPrompt": "Help me register an Obsidian writing project, save the current Codex conversation safely, and publish it as an A4 manuscript or portable blog."
+    "defaultPrompt": [
+      "Register an Obsidian writing project and save the current Codex conversation safely.",
+      "Publish verified work as an A4 manuscript, blog, or custom output.",
+      "Delete or refresh the current conversation bundle safely."
+    ]
   }
 }

@@ -21,6 +21,7 @@ def _inspect_container(path: Path) -> None:
             if len(entries) > MAX_ENTRIES:
                 raise ValueError("unsafe_docx_source")
             expanded = 0
+            seen_names: set[str] = set()
             for entry in entries:
                 name = entry.filename.replace("\\", "/")
                 if name.startswith("/") or name.startswith("../") or "/../" in name or posixpath.normpath(name) != name:
@@ -29,6 +30,10 @@ def _inspect_container(path: Path) -> None:
                     raise ValueError("unsafe_docx_source")
                 if entry.compress_size and entry.file_size / entry.compress_size > MAX_COMPRESSION_RATIO:
                     raise ValueError("unsafe_docx_source")
+                folded_name = name.casefold()
+                if folded_name in seen_names:
+                    raise ValueError("unsafe_docx_source")
+                seen_names.add(folded_name)
                 expanded += entry.file_size
                 if expanded > MAX_EXPANDED_BYTES:
                     raise ValueError("unsafe_docx_source")
@@ -44,7 +49,8 @@ def _inspect_container(path: Path) -> None:
                     for relationship in root:
                         target_mode = relationship.attrib.get("TargetMode", "").lower()
                         target = relationship.attrib.get("Target", "")
-                        if target_mode == "external" or target.startswith(("http:", "https:", "file:")):
+                        lowered_target = target.lower()
+                        if target_mode == "external" or lowered_target.startswith(("http:", "https:", "file:")):
                             raise ValueError("unsafe_docx_source")
     except ValueError:
         raise

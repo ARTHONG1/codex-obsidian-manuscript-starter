@@ -1,0 +1,214 @@
+#!/usr/bin/env python3
+"""Generate a hash-complete lock file from a verified wheel directory."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import re
+import sys
+import zipfile
+from email import message_from_bytes
+from pathlib import Path
+
+
+_PINNED_REQUIREMENT = re.compile(
+    r"^\s*([A-Za-z0-9][A-Za-z0-9_.-]*)\s*==\s*([^\s;#]+)"
+)
+def canonicalize_name(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def parse_direct_requirements(path: Path) -> dict[str, str]:
+    requirements: dict[str, str] = {}
+    for line_number, raw_line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        line = raw_line.split("#", 1)[0].strip()
+        if not line or line.startswith(("-", "--")):
+            continue
+        match = _PINNED_REQUIREMENT.match(line)
+        if not match:
+            raise ValueError(
+                f"requirements line {line_number} must use an exact == pin: {raw_line}"
+            )
+        name, version = match.groups()
+        canonical = canonicalize_name(name)
+        previous = requirements.get(canonical)
+        if previous is not None and previous != version:
+            raise ValueError(f"duplicate direct requirement with conflicting version: {name}")
+        requirements[canonical] = version
+    if not requirements:
+        raise ValueError("requirements file contains no direct requirements")
+    return requirements
+
+
+def parse_wheel_tags(path: Path) -> tuple[str, str, str]:
+    if path.suffix.lower() != ".whl":
+        raise ValueError(f"non-wheel file in wheel directory: {path.name}")
+    parts = path.stem.rsplit("-", 3)
+    if len(parts) != 4:
+        raise ValueError(f"invalid wheel filename: {path.name}")
+    tag = (parts[1], parts[2], parts[3])
+    _validate_wheel_tag(tag, f"wheel filename: {path.name}")
+    return tag
+
+
+def _validate_wheel_tag(tag: tuple[str, str, str], source: str) -> None:
+    python_tag, abi_tag, platform_tag = tag
+    is_pure_python = (
+        python_tag == "py3"
+        and abi_tag == "none"
+        and platform_tag in {"any", "win_amd64"}
+    )
+    abi3_match = re.fullmatch(r"cp3(\d+)", python_tag)
+    abi3_compatible = (
+        abi3_match is not None
+        and 2 <= int(abi3_match.group(1)) <= 12
+        and abi_tag == "abi3"
+        and platform_tag == "win_amd64"
+    )
+    is_cp312 = (
+        python_tag == "cp312"
+        and abi_tag == "cp312"
+        and platform_tag == "win_amd64"
+    )
+    if not (is_pure_python or abi3_compatible or is_cp312):
+        rendered = "-".join(tag)
+        raise ValueError(f"unsupported wheel tag in {source}: {rendered}")
+
+
+def parse_wheel_filename(path: Path) -> tuple[str, str]:
+    parse_wheel_tags(path)
+    prefix = path.stem.rsplit("-", 3)[0]
+    distribution, version_and_build = prefix.split("-", 1)
+    version = version_and_build.split("-", 1)[0]
+    return canonicalize_name(distribution), version
+
+
+def wheel_identity(path: Path) -> tuple[str, str]:
+    filename_tag = parse_wheel_tags(path)
+    filename_name, filename_version = parse_wheel_filename(path)
+    try:
+        with zipfile.ZipFile(path) as archive:
+            metadata_name = next(
+                name
+                for name in archive.namelist()
+                if name.endswith(".dist-info/METADATA")
+            )
+            wheel_name = next(
+                name
+                for name in archive.namelist()
+                if name.endswith(".dist-info/WHEEL")
+            )
+            message = message_from_bytes(archive.read(metadata_name))
+            wheel_message = message_from_bytes(archive.read(wheel_name))
+    except (StopIteration, OSError, zipfile.BadZipFile) as error:
+        raise ValueError(f"invalid wheel metadata: {path.name}") from error
+    wheel_version = wheel_message.get("Wheel-Version")
+    wheel_tags = wheel_message.get_all("Tag") or []
+    if not wheel_version or len(wheel_tags) != 1:
+        raise ValueError(f"invalid WHEEL metadata: {path.name}")
+    internal_parts = wheel_tags[0].strip().split("-")
+    if len(internal_parts) != 3 or any(not part for part in internal_parts):
+        raise ValueError(f"invalid WHEEL metadata: {path.name}")
+    internal_tag = tuple(internal_parts)
+    try:
+        _validate_wheel_tag(internal_tag, f"WHEEL metadata: {path.name}")
+    except ValueError as error:
+        raise ValueError(f"invalid WHEEL metadata: {path.name}") from error
+    if internal_tag != filename_tag:
+        raise ValueError(
+            f"wheel filename does not match WHEEL Tag: {path.name} "
+            f"({'-'.join(filename_tag)} != {'-'.join(internal_tag)})"
+        )
+    name = message.get("Name")
+    version = message.get("Version")
+    if not name or not version:
+        raise ValueError(f"wheel metadata lacks Name or Version: {path.name}")
+    metadata_identity = (canonicalize_name(name), version)
+    if metadata_identity != (filename_name, filename_version):
+        raise ValueError(
+            f"wheel filename does not match metadata: {path.name} "
+            f"({filename_name}=={filename_version} != "
+            f"{metadata_identity[0]}=={metadata_identity[1]})"
+        )
+    return metadata_identity
+
+
+def render_sorted_hash_entries(
+    grouped: dict[tuple[str, str], list[str]],
+) -> str:
+    blocks: list[str] = []
+    for (name, version), hashes in sorted(grouped.items()):
+        lines = [f"{name}=={version} \\"]
+        for index, digest in enumerate(sorted(set(hashes))):
+            suffix = " \\" if index < len(set(hashes)) - 1 else ""
+            lines.append(f"    --hash=sha256:{digest}{suffix}")
+        blocks.append("\n".join(lines))
+    return (
+        "# Generated from verified Windows CPython 3.12 wheels.\n"
+        "# Regenerate with ci/generate-requirements-lock.py.\n\n"
+        + "\n\n".join(blocks)
+        + "\n"
+    )
+
+
+def build_lock(wheels: list[Path], direct: dict[str, str]) -> str:
+    if not wheels:
+        raise ValueError("wheel set is empty")
+    grouped: dict[tuple[str, str], list[str]] = {}
+    versions_by_name: dict[str, set[str]] = {}
+    for wheel in sorted(wheels):
+        identity = wheel_identity(wheel)
+        name, version = identity
+        versions_by_name.setdefault(name, set()).add(version)
+        grouped.setdefault(identity, []).append(
+            hashlib.sha256(wheel.read_bytes()).hexdigest()
+        )
+    duplicate_versions = {
+        name: versions
+        for name, versions in versions_by_name.items()
+        if len(versions) > 1
+    }
+    if duplicate_versions:
+        details = ", ".join(
+            f"{name}: {sorted(versions)}"
+            for name, versions in sorted(duplicate_versions.items())
+        )
+        raise ValueError(f"duplicate versions for one canonical name: {details}")
+    resolved = {name: versions.pop() for name, versions in versions_by_name.items()}
+    missing = sorted(
+        f"{name}=={version}"
+        for name, version in direct.items()
+        if resolved.get(name) != version
+    )
+    if missing:
+        raise ValueError(f"missing direct requirement(s): {', '.join(missing)}")
+    return render_sorted_hash_entries(grouped)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("input_requirements", type=Path)
+    parser.add_argument("wheel_directory", type=Path)
+    parser.add_argument("output_lock", type=Path)
+    args = parser.parse_args(argv)
+    try:
+        direct = parse_direct_requirements(args.input_requirements)
+        wheels = [
+            path
+            for path in args.wheel_directory.iterdir()
+            if path.is_file()
+        ]
+        lock = build_lock(wheels, direct)
+        args.output_lock.parent.mkdir(parents=True, exist_ok=True)
+        args.output_lock.write_text(lock, encoding="utf-8", newline="\n")
+    except (OSError, ValueError) as error:
+        print(f"lock generation failed: {error}", file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

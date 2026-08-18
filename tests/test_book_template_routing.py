@@ -35,6 +35,43 @@ class BookTemplateRoutingTests(unittest.TestCase):
         result = self.router.select_book_template("V2 양식으로 원고를 만들어줘")
         self.assertEqual(result["template_version"], 2)
 
+    def test_explicit_v3_wins_over_legacy_text(self):
+        result = self.router.select_book_template(
+            "V1 내용을 비교",
+            requested_template_version=3,
+        )
+        self.assertEqual(result["template_version"], 3)
+
+    def test_v10_does_not_match_v1(self):
+        result = self.router.select_book_template("V10 테스트")
+        self.assertEqual(result["template_version"], 3)
+
+    def test_explicit_v1_and_v2_override_conflicting_text(self):
+        self.assertEqual(
+            self.router.select_book_template(
+                "V2 양식",
+                requested_template_version=1,
+            )["template_version"],
+            1,
+        )
+        self.assertEqual(
+            self.router.select_book_template(
+                "V1 양식",
+                requested_template_version=2,
+            )["template_version"],
+            2,
+        )
+
+    def test_case_insensitive_token_markers_route_legacy_versions(self):
+        self.assertEqual(
+            self.router.select_book_template("please use v1")["template_version"],
+            1,
+        )
+        self.assertEqual(
+            self.router.select_book_template("please use V2")["template_version"],
+            2,
+        )
+
     def test_explicit_legacy_request_selects_v1(self):
         result = self.router.select_book_template("기존 레거시 V1 양식으로 다시 렌더링해줘")
         self.assertEqual(result["template_version"], 1)

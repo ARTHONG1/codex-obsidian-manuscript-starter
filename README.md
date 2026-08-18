@@ -21,7 +21,7 @@ Codex 대화를 Obsidian에 대화별로 분리해 보관하고, 검증된 재�
 Codex 채팅창에 아래 내용을 그대로 붙여넣습니다.
 
 ```text
-GitHub의 ARTHONG1/codex-obsidian-manuscript-starter v0.5.1를 처음부터 설치해줘.
+GitHub의 ARTHONG1/codex-obsidian-manuscript-starter 최신 안정 릴리스를 처음부터 설치해줘.
 나는 Codex만 설치한 초보자야. Obsidian 설치, 새 빈 보관함 생성, Local REST API 연결, 원고 스킬 설치와 연결 확인까지 진행해줘.
 기존 Obsidian 보관함과 기존 설정은 건드리지 말고, API 키와 인증서 값은 출력하지 마.
 설치나 커뮤니티 플러그인 동의가 필요하면 먼저 나에게 물어봐.
@@ -34,7 +34,7 @@ Codex가 설치 명령을 직접 실행할 수 없는 환경이라면 PowerShell
 이미 쓰고 있는 Obsidian 보관함을 그대로 연결하는 기능은 아직 없습니다. 설치 대상은 전용 새 빈 폴더이며, 새 빈 보관함을 사용합니다.
 
 ```powershell
-codex plugin marketplace add ARTHONG1/codex-obsidian-manuscript-starter --ref v0.5.1
+codex plugin marketplace add ARTHONG1/codex-obsidian-manuscript-starter
 codex plugin add obsidian-manuscript-publisher@codex-obsidian-starter
 ```
 
@@ -137,6 +137,10 @@ AI가 만든 이미지는 실제 화면이라고 속이지 않습니다. 실제 
 
 개발자가 설치된 스킬을 저장소와 맞출 때는 테스트가 모두 통과한 뒤 `verify_skill_sync.py`의 해시 비교·백업 승격 절차를 사용합니다. 이 유지보수 절차는 일반 사용자의 자동 설치에 포함되지 않습니다.
 
+## 릴리스 후보 검증
+
+릴리스 후보는 추적된 파일과 `ci/release-allowlist.txt`에 일치하는 제품 파일만 ZIP에 포함합니다. 빌드 후 SHA-256 체크섬, ZIP 경로 안전성, 비밀값·원본 문서·생성 결과물 제외, 플러그인 버전, 새 임시 폴더의 압축 해제를 확인합니다.
+
 ## 보안과 데이터 보호
 
 - Obsidian Local REST API는 `https://127.0.0.1`에서만 사용합니다.
@@ -147,6 +151,12 @@ AI가 만든 이미지는 실제 화면이라고 속이지 않습니다. 실제 
 - 기존 파일이 있는 폴더는 절대 덮어쓰지 않습니다.
 - 대화·원고 저장은 Local REST API의 읽기 검증이 통과한 뒤에만 완료로 표시합니다.
 - 화면에 API 키가 노출됐다면 `Reset all crypto`로 키를 교체합니다. `Re-generate certificates`만으로는 API 키가 바뀌지 않습니다.
+
+## 설치 기준
+
+설치기는 사용자 보관함과 분리된 제품 소유 Python 3.12 가상환경을 사용합니다. 재시작 뒤에는 schema-v3 상태와 실제 probe를 다시 읽고, Local REST가 준비될 때까지 재시도합니다. WinGet이 없으면 고정된 공식 설치기의 URL·SHA-256·Authenticode를 검증한 뒤 실행합니다.
+
+직접 런타임 패키지는 `Pillow==12.3.0`, `reportlab==4.4.3`, `python-docx==1.2.0`, `pdfplumber==0.11.9`, `pypdfium2==5.12.1`, `pypdf==5.9.0` 여섯 개이며, 나머지 전이 의존성은 `requirements.lock.txt`의 SHA-256 해시로 고정합니다. 설치 경로와 재시작 문장은 [설치 안내](docs/INSTALL_GUIDE.md), beginner prompt는 [INSTALL_PROMPT.md](INSTALL_PROMPT.md)에 있습니다.
 
 ## 저작권·브랜드·비제휴 안내
 
@@ -175,11 +185,14 @@ AI가 만든 이미지는 실제 화면이라고 속이지 않습니다. 실제 
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-python -m unittest discover -s tests -p "test*.py"
-python -m unittest discover -s tests -t tests
-Invoke-Pester -Script .\tests\InstallerContract.Tests.ps1
-Invoke-Pester -Script .\tests\SecretScan.Tests.ps1
+.\ci\run-python-tests.ps1 -PythonPath $Python312
+.\ci\run-pester-tests.ps1 -Path .\tests\InstallerContract.Tests.ps1,.\tests\PythonRuntimeContract.Tests.ps1,.\tests\SecretScan.Tests.ps1 -ExpectedSkipCount 0
+.\ci\run-all-tests.ps1 -PythonPath $Python312 -ExpectedPythonSkipCount 4
+.\ci\build-release.ps1 -SourceRoot . -OutputRoot .\artifacts\release -Version 0.6.0
+.\ci\verify-release.ps1 -Archive .\artifacts\release\codex-obsidian-manuscript-starter-v0.6.0.zip -Checksums .\artifacts\release\SHA256SUMS -TestRoot (Join-Path $env:TEMP ("release-install-" + [guid]::NewGuid().ToString("N")))
 ```
+
+현재 Python 전체 검증에서 허용하는 건너뜀은 정확히 네 건입니다. 실 wheelhouse가 제공되지 않은 `test_real_wheelhouse_recreates_committed_lock_when_provided`, 현재 권한에서 디렉터리 reparse point를 만들 수 없는 `test_existing_item_reparse_point_is_rejected_when_supported`, `test_rejects_reparse_point_without_following_it_when_supported`, `test_snapshot_rejects_reparse_staging_parent_when_supported`입니다. 집계 러너는 이 수와 다르면 실패합니다.
 
 ## Master Editorial Quality V3
 

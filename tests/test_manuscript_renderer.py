@@ -20,6 +20,14 @@ SKILL_ROOT = REPOSITORY_ROOT / "plugins" / "obsidian-manuscript-publisher" / "sk
 RENDERER = SKILL_ROOT / "scripts" / "render_manuscript.py"
 VALIDATOR = SKILL_ROOT / "scripts" / "validate_manuscript.py"
 VERSIONER = SKILL_ROOT / "scripts" / "next_version.py"
+
+
+def same_file_target(left: Path, right: Path) -> bool:
+    """Compare Windows paths by file identity, not 8.3/long spelling."""
+    try:
+        return os.path.samefile(left, right)
+    except (FileNotFoundError, OSError):
+        return os.path.normcase(str(left.resolve())) == os.path.normcase(str(right.resolve()))
 class ManuscriptRendererTests(unittest.TestCase):
     @staticmethod
     def load_renderer_module():
@@ -368,7 +376,9 @@ class ManuscriptRendererTests(unittest.TestCase):
                 text=True,
             )
             self.assertNotEqual(result.returncode, 0)
-            self.assertEqual(result.stderr.splitlines()[0], f"ERROR: FileNotFoundError: [Errno 2] No such file or directory: {str(missing)!r}")
+            self.assertEqual(result.stderr.splitlines()[0], "ERROR: manuscript_input_missing")
+            self.assertNotIn("runner~1", result.stderr.lower())
+            self.assertNotIn("runneradmin", result.stderr.lower())
             self.assertNotIn("Traceback", result.stderr)
 
     def test_renderer_writes_relative_image_urls_and_data_derived_alt_text(self):
@@ -503,7 +513,7 @@ class ManuscriptRendererTests(unittest.TestCase):
 
             def fail_report_once(source, destination):
                 nonlocal failed
-                if Path(destination) == report and str(source).endswith(".tmp") and not failed:
+                if same_file_target(Path(destination), report) and str(source).endswith(".tmp") and not failed:
                     failed = True
                     raise OSError("simulated report replace failure")
                 return real_replace(source, destination)
@@ -516,6 +526,7 @@ class ManuscriptRendererTests(unittest.TestCase):
             self.assertEqual(pdf_path.read_bytes(), b"old-pdf")
             self.assertEqual(report.read_bytes(), previous_report)
             self.assertNotIn("validated_outputs", json.loads(report.read_text(encoding="utf-8")))
+            self.assertTrue(failed)
 
     def test_next_version_never_reuses_an_existing_draft_directory(self):
         with tempfile.TemporaryDirectory() as temporary:

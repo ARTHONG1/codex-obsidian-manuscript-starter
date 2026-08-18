@@ -54,7 +54,7 @@ def _local_base_url(value: str) -> str:
         or parsed.query
         or parsed.fragment
     ):
-        raise ValueError("Obsidian REST endpoint must be an HTTPS 127.0.0.1 origin")
+        raise ValueError("local_rest_origin_must_be_loopback_https: HTTPS 127.0.0.1 is required")
     return f"https://127.0.0.1:{port}"
 
 
@@ -84,7 +84,21 @@ def _connection(config_path: Path, base_url: str | None = None) -> tuple[str, st
     certificate = config.get("crypto", {}).get("cert") if isinstance(config.get("crypto"), dict) else None
     if not certificate or not str(certificate).strip():
         raise ValueError("Obsidian Local REST public certificate is unavailable")
-    url_base = _local_base_url(base_url or f"https://127.0.0.1:{config.get('port', 27124)}")
+    configured_port = config.get("port")
+    if base_url is None and configured_port is None:
+        raise ValueError("local_rest_port_missing")
+    if configured_port is not None and (
+        isinstance(configured_port, bool)
+        or not isinstance(configured_port, int)
+        or not 1 <= configured_port <= 65535
+    ):
+        raise ValueError("local_rest_port_invalid")
+    url_base = _local_base_url(
+        base_url or f"https://127.0.0.1:{configured_port}"
+    )
+    if base_url is not None and configured_port is not None:
+        if urllib.parse.urlsplit(url_base).port != configured_port:
+            raise ValueError("local_rest_port_mismatch")
     try:
         context = ssl.create_default_context(cadata=str(certificate))
     except ssl.SSLError as error:

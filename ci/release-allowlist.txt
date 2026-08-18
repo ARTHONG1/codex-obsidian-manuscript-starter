@@ -1,0 +1,24 @@
+.agents/plugins/marketplace.json
+.github/workflows/windows-ci.yml
+acceptance/windows/**
+bootstrap/**
+# The acquisition verifier is shipped as part of the bootstrap trust boundary.
+ci/action-lock.json
+ci/run-*.ps1
+ci/lib/**
+ci/generate-codex-skills-manifest.py
+ci/release-allowlist.txt
+dependencies.lock.json
+INSTALL_PROMPT.md
+LICENSE
+README.md
+requirements.lock.txt
+SECURITY.md
+THIRD_PARTY_NOTICES.md
+CITATION.cff
+docs/INSTALL_GUIDE.md
+docs/USAGE_GUIDE.md
+docs/TROUBLESHOOTING.md
+docs/RELEASE.md
+docs/RELEASE_NOTES_v0.6.0.md
+plugins/obsidian-manuscript-publisher/**
