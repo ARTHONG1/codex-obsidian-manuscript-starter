@@ -1,0 +1,33 @@
+{
+  "name": "obsidian-manuscript-publisher",
+  "version": "0.7.0",
+  "description": "Archive verified Codex conversations and publish custom-template manuscripts or portable blog articles in Obsidian.",
+  "author": {
+    "name": "AI찬우쌤",
+    "url": "https://classddok.com/"
+  },
+  "homepage": "https://classddok.com/",
+  "repository": "https://github.com/ARTHONG1/codex-obsidian-manuscript-starter",
+  "license": "MIT",
+  "keywords": [
+    "obsidian",
+    "manuscript",
+    "codex",
+    "education",
+    "automation"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Obsidian Manuscript Publisher",
+    "shortDescription": "Publish Codex work with your templates or as portable blogs.",
+    "longDescription": "Creates isolated conversation bundles in Obsidian and publishes verified work using approved custom templates or source-grounded Markdown and HTML blog articles.",
+    "developerName": "AI Agent Automation contributors",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": [
+      "Register an Obsidian writing project and save the current Codex conversation safely.",
+      "Publish verified work as a blog or using an approved custom template.",
+      "Delete or refresh the current conversation bundle safely."
+    ]
+  }
+}

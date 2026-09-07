@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "sourceManifest": "codex-skills-manifest.json",
+  "skillId": "obsidian-manuscript-publisher",
+  "destination": "obsidian-manuscript-publisher",
+  "purpose": "doctor verifies the installed publisher skill against the immutable source manifest"
+}

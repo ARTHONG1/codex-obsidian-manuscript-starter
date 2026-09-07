@@ -1,0 +1,25 @@
+# User-specific and generated content
+.env
+**/data.json
+**/*.pem
+**/*.key
+**/*.pfx
+**/__pycache__/
+**/*.pyc
+
+# Local validation and generated manuscript output
+test-results/
+publish/
+
+# Editor and operating-system noise
+.DS_Store
+Thumbs.db
+
+.worktrees/
+
+# Agent planning notes are local working state, not release content
+.planning/
+
+# Local implementation plans and harness prompts are not release artifacts.
+docs/superpowers/plans/
+docs/superpowers/specs/

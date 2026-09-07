@@ -1,0 +1,3 @@
+# Skill manifests hash exact bytes. Keep skill files identical in Git checkouts
+# and packaged installations regardless of Windows core.autocrlf settings.
+plugins/obsidian-manuscript-publisher/skills/** text eol=lf

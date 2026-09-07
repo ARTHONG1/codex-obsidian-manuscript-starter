@@ -1,0 +1,20 @@
+{
+  "name": "codex-obsidian-starter",
+  "interface": {
+    "displayName": "Codex Obsidian Starter"
+  },
+  "plugins": [
+    {
+      "name": "obsidian-manuscript-publisher",
+      "source": {
+        "source": "local",
+        "path": "./plugins/obsidian-manuscript-publisher"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

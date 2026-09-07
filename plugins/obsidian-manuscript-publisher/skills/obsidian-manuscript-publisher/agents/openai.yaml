@@ -1,0 +1,4 @@
+interface:
+  display_name: "Obsidian Manuscript Publisher"
+  short_description: "대화 저장과 사용자 양식·범용 블로그 발행, 바탕화면 출판함"
+  default_prompt: "$obsidian-manuscript-publisher로 대화를 Obsidian에 저장하거나 블로그·승인된 사용자 양식으로 발행해 줘."

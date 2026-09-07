@@ -1,0 +1,167 @@
+{
+  "schemaVersion": 1,
+  "skills": [
+    {
+      "id": "obsidian-manuscript-setup",
+      "sourceRoot": "plugins/obsidian-manuscript-publisher/skills/obsidian-manuscript-setup",
+      "destination": "obsidian-manuscript-setup",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "724dffa175b638cfd803ad71496811c02f25a4cebbf7dbaec78e71b1b31b3155"
+        }
+      ]
+    },
+    {
+      "id": "obsidian-manuscript-publisher",
+      "sourceRoot": "plugins/obsidian-manuscript-publisher/skills/obsidian-manuscript-publisher",
+      "destination": "obsidian-manuscript-publisher",
+      "files": [
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "27bd414c1426900e73a4407465b716fd653f325123cb198329e9514dfb14fbef"
+        },
+        {
+          "path": "references/adaptive-blog-workflow.md",
+          "sha256": "54014e88b237716bbeab71ba22a24cc808550e15e350ef0cd5c04f32a7a16aa0"
+        },
+        {
+          "path": "references/asset-policy.md",
+          "sha256": "3d86c322bc8adbfd162f96c7b66e827c3c2af1be0c1b094682821f557911d9c5"
+        },
+        {
+          "path": "references/blog-editorial-policy.md",
+          "sha256": "afc31b78ee0f918e4786e22cc0f2c07b2050d48bd8d6ed5e74c039870e3be1a5"
+        },
+        {
+          "path": "references/blog-schema.md",
+          "sha256": "cea2c515ec0a503e3db360058cb244a83b7b4f86824756a07e196d21d1c6191f"
+        },
+        {
+          "path": "references/conversation-workflow.md",
+          "sha256": "4fa73a89a7847263a568a04c03e7f6b16e8b3f46f2d5e04333b32fa181655c5c"
+        },
+        {
+          "path": "references/custom-manuscript-workflow.md",
+          "sha256": "7a2ce40f7d4d995bd645f8dcc9f0570f98bb9eed453a21d50eb58374c878a77f"
+        },
+        {
+          "path": "references/deletion-workflow.md",
+          "sha256": "5d2c6b0746a37161844061f6366d0249d21d45574999ff44c237da46a5b4f4fc"
+        },
+        {
+          "path": "references/publication-library.md",
+          "sha256": "afa1b56a2c43bea15f29636ae3945541fda2218e5c692ccbb147c2e34d0eda77"
+        },
+        {
+          "path": "scripts/analyze_template_sources.py",
+          "sha256": "36c5afd2be00b8148de1f1cd69f5e33017bf8a67069b1ae453dffcbfaf8d59f1"
+        },
+        {
+          "path": "scripts/archive_conversation.py",
+          "sha256": "56fa67b38c6bbd77eda2e07a967a133c0df77dc8abec65b089c55b699667361e"
+        },
+        {
+          "path": "scripts/build_template_candidate.py",
+          "sha256": "c610c68b8026d724583c262178f98a39bfcbfa081519960667ce9f2f113e825a"
+        },
+        {
+          "path": "scripts/delete_conversation_bundle.py",
+          "sha256": "12afe2fa6a406faefad5b52f3a813616f617e9055cd73ede31379b0f7bc1b391"
+        },
+        {
+          "path": "scripts/editorial_quality.py",
+          "sha256": "ec1270386a774b30714341d46915a2a28ef42c543eeb81092bd9b84279eccefa"
+        },
+        {
+          "path": "scripts/export_publication_bundle.py",
+          "sha256": "aca1a883423ebff2bb82f70aefc6c87c23114e6448b9f03018d51f2dbd99b57d"
+        },
+        {
+          "path": "scripts/extract_docx_template.py",
+          "sha256": "8199616b7970378e0bb25781f8ca98bd5b0f692028ec78cab46d5945b89c57ca"
+        },
+        {
+          "path": "scripts/extract_image_template.py",
+          "sha256": "b2606bcf37cdcf9c9760b1c8c768ca1bf9f617d5dc2275bfdc15daf3fc8746f4"
+        },
+        {
+          "path": "scripts/extract_pdf_template.py",
+          "sha256": "f51e84217c2ef595c591b51bd747136828c69c0ad1e4d279a70a90ae09aef227"
+        },
+        {
+          "path": "scripts/finalize_custom_publication.py",
+          "sha256": "c9404564990032f403d11947a22746c98a9cd1740652bc43eff4624a6802b935"
+        },
+        {
+          "path": "scripts/layout_plan.py",
+          "sha256": "c88dad35cb6b4d23ff0561b4c412b8b1cd1b241e2bf8cdd63f5a2b0e8a17e2f1"
+        },
+        {
+          "path": "scripts/next_version.py",
+          "sha256": "d0acb0bcaa8532fbf34224a35931d8bee4ed3c132de8de6bf02ee565f02b2bd1"
+        },
+        {
+          "path": "scripts/publish_manuscript_version.py",
+          "sha256": "f87dcfda913f797f7195194dafdcb118f768ae6ea145ccf62406e19130c6c736"
+        },
+        {
+          "path": "scripts/refresh_material_card.py",
+          "sha256": "bcd3f4aab0135d410de77b929cf2c1c6318b49b16a73fce4911f079cd2c534ac"
+        },
+        {
+          "path": "scripts/register_custom_template.py",
+          "sha256": "d7ec8762c2c800f605819a43fab1c55886c011b5c8bc162b8d5f012c2fd17cea"
+        },
+        {
+          "path": "scripts/render_blog.py",
+          "sha256": "ebd8ef4832370217857affcde38ea3982736e1761e04ab08a744e71cf0911d4f"
+        },
+        {
+          "path": "scripts/render_custom_manuscript.py",
+          "sha256": "9275dfc5bff303d742c37b2331b0cf856808ac3fed9d751f7137faf8a4506dff"
+        },
+        {
+          "path": "scripts/render_template_preview.py",
+          "sha256": "5b9889dc79ae17553ae3852701642c9cb5b2a1886ce8dc0899305a544e3c2096"
+        },
+        {
+          "path": "scripts/resolve_custom_template.py",
+          "sha256": "236d1a5d19d4d6df8661502367833bef8e9eb1c10f1c285b488535cc973d2baa"
+        },
+        {
+          "path": "scripts/save_via_obsidian_rest.py",
+          "sha256": "12920e5bc7b43347b1670419878dddec4b6da02c8254689ef23785bd82f14dbf"
+        },
+        {
+          "path": "scripts/template_candidate_state.py",
+          "sha256": "9167700c1962c5dffbf15d62cb53c7e6fe5c9a9e4b6a9337f8cb2bbe65bea016"
+        },
+        {
+          "path": "scripts/template_model.py",
+          "sha256": "5cc85a7483d4f8535f6399311b61fc1973f6d2d7938fecbe9997f099911bcede"
+        },
+        {
+          "path": "scripts/template_source.py",
+          "sha256": "6a0601e7e5f128bbd5e6ca3dbdfe79ba8cb2a7e4675a328f2047dbe01afd8fd2"
+        },
+        {
+          "path": "scripts/validate_blog.py",
+          "sha256": "2b448302db9fa5cbf85f8e7fd9de7d662b7c827756b0b86cf1761ccaa82fb40f"
+        },
+        {
+          "path": "scripts/validate_template_candidate.py",
+          "sha256": "d7f9628ef3b75ca00fc425deff82bc3946d1d5bbad01db098db73bb6ca121bc0"
+        },
+        {
+          "path": "scripts/verify_skill_sync.py",
+          "sha256": "7c5d06d12156a951e055b6f9db9eb60e0496ce64f6ea14ec1858840f96939db3"
+        },
+        {
+          "path": "SKILL.md",
+          "sha256": "1620274dab7b9007cc30bdd60c19878629f8e712c9e2047d72b9c3e92b38c246"
+        }
+      ]
+    }
+  ]
+}
