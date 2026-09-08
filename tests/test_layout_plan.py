@@ -38,6 +38,14 @@ class LayoutPlanTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "custom_layout_contract_invalid"):
             layout_plan.compile_layout_plan({"blocks": [{"id": "one", "component": "title", "font_size": 999}]})
 
+    def test_invalid_page_geometry_and_tables_fail_closed(self):
+        for page in ({"width": 0}, {"width": 100, "margin": 60}, {"height": 80}, {"width": True}, {"height": float("nan")}):
+            with self.subTest(page=page), self.assertRaises(ValueError):
+                layout_plan.compile_layout_plan({"blocks": [], "page_tokens": page})
+        for table in ({}, {"headers": ["A"], "rows": [["a", "b"]]}, {"headers": ["A"], "rows": [["<script>"]]}, {"headers": ["A"], "rows": [[4]]}):
+            with self.subTest(table=table), self.assertRaises(ValueError):
+                layout_plan.compile_layout_plan({"blocks": [{"id": "t", "component": "quick_table", **table}]})
+
 
 if __name__ == "__main__":
     unittest.main()

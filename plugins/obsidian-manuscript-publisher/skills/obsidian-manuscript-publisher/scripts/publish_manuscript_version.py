@@ -33,6 +33,8 @@ def _report_bytes(report: dict) -> bytes:
 
 
 def _write_report(version_dir: Path, report: dict) -> Path:
+    if (version_dir / 'custom-validation.json').exists() and 'error' in report:
+        report = {**report, 'error': 'custom_publication_failed'}
     report_path = version_dir / REPORT_NAME
     handle, temporary_name = tempfile.mkstemp(prefix=f".{REPORT_NAME}.", suffix=".tmp", dir=version_dir)
     temporary_path = Path(temporary_name)
@@ -225,12 +227,20 @@ def publish_version(config_path: Path, local_version_dir: Path, vault_relative_v
 
     _assert_generic_destination(vault_root)
 
+    is_custom = ('03 Custom Manuscript' in PurePosixPath(vault_root).parts
+                 or any(path.name in {'custom-validation.json', 'manuscript.md', 'manuscript.html'} for path in files))
+    if is_custom:
+        files = [path for path in files if path.name != 'finalization-report.json']
+
     # Capture the complete validated package before the first REST call.
     # Uploads below must use only these immutable byte snapshots.
     snapshots = [
         (path.relative_to(local_version_dir).as_posix(), path.read_bytes())
         for path in files
     ]
+    if is_custom:
+        from finalize_custom_publication import validate_custom_snapshot
+        validate_custom_snapshot(snapshots, config_path, base_url)
     published: list[dict] = []
     attempted_paths: list[str] = []
     try:

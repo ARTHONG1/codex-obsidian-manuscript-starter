@@ -58,16 +58,30 @@ Describe "Owned process runner contract" {
             "-NoProfile", "-Command", "Start-Sleep -Seconds 600"
         ) -PassThru -WindowStyle Hidden
         $run = New-OwnedProcessRun -RootPath $runRoot -Name "timeout"
+        $descendantMarker = Join-Path $run.runRoot 'timeout-descendant.pid'
+        $descendantCode = '$PID | Set-Content -LiteralPath ''' + $descendantMarker.Replace("'", "''") + '''; Start-Sleep -Seconds 600'
+        $descendantEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($descendantCode))
         try {
             $result = Invoke-OwnedProcess -Run $run -Name "timeout-child" -FilePath "powershell.exe" `
-                -ArgumentList @("-NoProfile", "-Command", "Start-Sleep -Seconds 600") `
-                -WorkingDirectory $runRoot -TimeoutSeconds 1
+                -ArgumentList @("-NoProfile", "-EncodedCommand", $descendantEncoded) `
+                -WorkingDirectory $runRoot -TimeoutSeconds 5
             $result.timedOut | Should Be $true
+            Test-Path -LiteralPath $descendantMarker | Should Be $true
+            $descendantPid = [int](Get-Content -Raw -LiteralPath $descendantMarker)
             Start-Sleep -Milliseconds 200
             Get-Process -Id $sentinel.Id -ErrorAction SilentlyContinue | Should Not BeNullOrEmpty
             Test-RunOwnedPidAlive -LedgerPath $run.ledgerPath | Should Be $false
+            [bool](Get-Process -Id $descendantPid -ErrorAction SilentlyContinue) | Should Be $false
         } finally {
             Close-OwnedProcessRun -Run $run
+            # RED must not leave the deliberately leaked synthetic descendant alive.
+            if (Test-Path -LiteralPath $descendantMarker) {
+                $cleanupPid = [int](Get-Content -Raw -LiteralPath $descendantMarker)
+                $cleanupProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$cleanupPid"
+                if ($cleanupProcess -and $result -and $cleanupProcess.ParentProcessId -eq $result.rootPid -and $cleanupProcess.CommandLine.Contains($descendantEncoded)) {
+                    Stop-Process -Id $cleanupPid -Force -ErrorAction SilentlyContinue
+                }
+            }
             Stop-Process -Id $sentinel.Id -Force -ErrorAction SilentlyContinue
         }
     }

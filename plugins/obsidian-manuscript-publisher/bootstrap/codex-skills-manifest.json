@@ -27,7 +27,7 @@
         },
         {
           "path": "references/asset-policy.md",
-          "sha256": "3d86c322bc8adbfd162f96c7b66e827c3c2af1be0c1b094682821f557911d9c5"
+          "sha256": "bcd52bdc9c539e804f05758ca0cc793ad660cc1e293310c29566df48427cb772"
         },
         {
           "path": "references/blog-editorial-policy.md",
@@ -43,11 +43,11 @@
         },
         {
           "path": "references/custom-manuscript-workflow.md",
-          "sha256": "7a2ce40f7d4d995bd645f8dcc9f0570f98bb9eed453a21d50eb58374c878a77f"
+          "sha256": "beba9e322975f991f7943a7b48eaebd78ce4e01b9800ec27d62c37219eefb06e"
         },
         {
           "path": "references/deletion-workflow.md",
-          "sha256": "5d2c6b0746a37161844061f6366d0249d21d45574999ff44c237da46a5b4f4fc"
+          "sha256": "31a5e04f90652bc40893669607cb0752b0bb0c981701b834839dd07e8766e25a"
         },
         {
           "path": "references/publication-library.md",
@@ -66,8 +66,12 @@
           "sha256": "c610c68b8026d724583c262178f98a39bfcbfa081519960667ce9f2f113e825a"
         },
         {
+          "path": "scripts/custom_assets.py",
+          "sha256": "2cce9ca84ad7273bba0f750634fcfbbc4c249f3b502a58ebbb6675a02379e9f5"
+        },
+        {
           "path": "scripts/delete_conversation_bundle.py",
-          "sha256": "12afe2fa6a406faefad5b52f3a813616f617e9055cd73ede31379b0f7bc1b391"
+          "sha256": "f864a4e4375b74e68f71f413e8d26298e5da0652ffbc52f56b9832e4bf47e837"
         },
         {
           "path": "scripts/editorial_quality.py",
@@ -91,11 +95,11 @@
         },
         {
           "path": "scripts/finalize_custom_publication.py",
-          "sha256": "c9404564990032f403d11947a22746c98a9cd1740652bc43eff4624a6802b935"
+          "sha256": "d302a4eabed6853622fa439537e79f7d6b301196a4dbd2c6980f14fad8573008"
         },
         {
           "path": "scripts/layout_plan.py",
-          "sha256": "c88dad35cb6b4d23ff0561b4c412b8b1cd1b241e2bf8cdd63f5a2b0e8a17e2f1"
+          "sha256": "01e72d7e08dd49312917a931af9b08bf7099b94a78bcc5eaef1c47361a823a68"
         },
         {
           "path": "scripts/next_version.py",
@@ -103,7 +107,7 @@
         },
         {
           "path": "scripts/publish_manuscript_version.py",
-          "sha256": "f87dcfda913f797f7195194dafdcb118f768ae6ea145ccf62406e19130c6c736"
+          "sha256": "cf9285f8317d2552ae75b591a9d3e903f096d75c6cf9432181274ff6203247ae"
         },
         {
           "path": "scripts/refresh_material_card.py",
@@ -111,7 +115,7 @@
         },
         {
           "path": "scripts/register_custom_template.py",
-          "sha256": "d7ec8762c2c800f605819a43fab1c55886c011b5c8bc162b8d5f012c2fd17cea"
+          "sha256": "affd6a32db5a02aacd78d2911663f3786b6599460040b6ae2b3bb63b7a99871a"
         },
         {
           "path": "scripts/render_blog.py",
@@ -119,7 +123,7 @@
         },
         {
           "path": "scripts/render_custom_manuscript.py",
-          "sha256": "9275dfc5bff303d742c37b2331b0cf856808ac3fed9d751f7137faf8a4506dff"
+          "sha256": "c02a96b204e740abd62756d0abdfde5c8cdcb7e87ceaa6114ffe2a12f722d1b5"
         },
         {
           "path": "scripts/render_template_preview.py",
@@ -127,7 +131,7 @@
         },
         {
           "path": "scripts/resolve_custom_template.py",
-          "sha256": "236d1a5d19d4d6df8661502367833bef8e9eb1c10f1c285b488535cc973d2baa"
+          "sha256": "e7cece268cca792a3f7a58780a3e0c48176c1bf3b50a315c9f39e9e27dec6f6d"
         },
         {
           "path": "scripts/save_via_obsidian_rest.py",
@@ -159,7 +163,7 @@
         },
         {
           "path": "SKILL.md",
-          "sha256": "1620274dab7b9007cc30bdd60c19878629f8e712c9e2047d72b9c3e92b38c246"
+          "sha256": "585b3ffc43ce04c72cd937aef15f4aad4550f69b6c9d50db1ea08f6c8c99d2d9"
         }
       ]
     }

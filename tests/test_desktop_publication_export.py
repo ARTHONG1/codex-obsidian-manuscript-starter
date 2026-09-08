@@ -178,9 +178,12 @@ class ValidBundleTests(PublicationExportTestCase):
         self.assertEqual(result["profile"], "custom_manuscript")
         self.assertEqual(result["desktop_export_status"], "exported")
         self.assertEqual(result["vault_publication_status"], "not_attempted")
-        self.assertEqual({path.name for path in desktop.iterdir()}, {"manuscript.md", "manuscript.html", "manuscript.pdf"})
-        for name in ("manuscript.md", "manuscript.html", "manuscript.pdf"):
+        names = {"manuscript.md", "manuscript.html", "manuscript.pdf", "layout-plan.json", "custom-validation.json"}
+        self.assertEqual({path.name for path in desktop.iterdir()}, names)
+        for name in names:
             self.assertEqual((desktop / name).read_bytes(), (source / name).read_bytes())
+        from finalize_custom_publication import validate_custom_package
+        self.assertEqual(validate_custom_package(desktop)['status'], 'ready')
         self.assertIn("사용자의 문장을 온전히 보존합니다.", (desktop / "manuscript.md").read_text(encoding="utf-8"))
         self.assertTrue((desktop / "manuscript.pdf").read_bytes().startswith(b"%PDF-"))
         self.assertEqual(tree_hashes(historical.parent), before)

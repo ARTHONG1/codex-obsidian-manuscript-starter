@@ -11,8 +11,6 @@ namespace CodexOwnedProcess {
     public static class Native {
         private const int JobObjectExtendedLimitInformation = 9;
         private const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000;
-        private const uint JOB_OBJECT_LIMIT_BREAKAWAY_OK = 0x0800;
-        private const uint JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK = 0x1000;
 
         [StructLayout(LayoutKind.Sequential)]
         private struct IO_COUNTERS {
@@ -66,7 +64,7 @@ namespace CodexOwnedProcess {
             IntPtr job = CreateJobObject(IntPtr.Zero, null);
             if (job == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateJobObject failed.");
             var info = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
-            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
             IntPtr buffer = Marshal.AllocHGlobal(Marshal.SizeOf(info));
             try {
                 Marshal.StructureToPtr(info, buffer, false);

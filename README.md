@@ -9,7 +9,7 @@ Codex 대화를 Obsidian에 대화별로 저장하고, 모아 둔 재료로 **�
 아래 내용을 통째로 복사해 **Codex 채팅창**에 입력하세요.
 
 ```text
-GitHub의 ARTHONG1/codex-obsidian-manuscript-starter v0.7.0 릴리스를 처음부터 설치해줘.
+GitHub의 ARTHONG1/codex-obsidian-manuscript-starter v0.7.1 릴리스를 처음부터 설치해줘.
 나는 Codex만 설치한 초보자야. Obsidian 설치, 새 빈 보관함 생성, Local REST API 연결, 스킬 설치와 연결 확인까지 진행해줘.
 고정 버전의 릴리스 파일과 체크섬을 검증한 뒤 설치하고, 기존 보관함과 설정은 보존해줘.
 API 키와 인증서 값은 출력하지 마. 설치 동의가 필요하면 먼저 설명해줘.
@@ -117,8 +117,8 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 .\ci\run-python-tests.ps1 -PythonPath $Python312
 .\ci\run-pester-tests.ps1 -Path .\tests\InstallerContract.Tests.ps1,.\tests\PythonRuntimeContract.Tests.ps1,.\tests\SecretScan.Tests.ps1 -ExpectedSkipCount 0
 .\ci\run-all-tests.ps1 -PythonPath $Python312 -ExpectedPythonSkipCount 3
-.\ci\build-release.ps1 -SourceRoot . -OutputRoot .\artifacts\release -Version 0.7.0
-.\ci\verify-release.ps1 -Archive .\artifacts\release\codex-obsidian-manuscript-starter-v0.7.0.zip -Checksums .\artifacts\release\SHA256SUMS -TestRoot (Join-Path $env:TEMP ("release-install-" + [guid]::NewGuid().ToString("N")))
+.\ci\build-release.ps1 -SourceRoot . -OutputRoot .\artifacts\release -Version 0.7.1
+.\ci\verify-release.ps1 -Archive .\artifacts\release\codex-obsidian-manuscript-starter-v0.7.1.zip -Checksums .\artifacts\release\SHA256SUMS -TestRoot (Join-Path $env:TEMP ("release-install-" + [guid]::NewGuid().ToString("N")))
 ```
 
 </details>

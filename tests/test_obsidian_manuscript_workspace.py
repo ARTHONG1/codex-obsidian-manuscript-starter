@@ -73,9 +73,9 @@ class ObsidianManuscriptWorkspaceTests(unittest.TestCase):
         ]:
             self.assertIn(required_text, skill)
 
-    def test_public_metadata_exposes_supported_profiles_as_version_0_7_0(self):
+    def test_public_metadata_exposes_supported_profiles_as_version_0_7_1(self):
         manifest = json.loads(PLUGIN_MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "0.7.0")
+        self.assertEqual(manifest["version"], "0.7.1")
         self.assertIn("blog", manifest["description"].lower())
         self.assertIn("blog", manifest["interface"]["longDescription"].lower())
 
@@ -164,7 +164,7 @@ class ObsidianManuscriptWorkspaceTests(unittest.TestCase):
         skill = SKILL.read_text(encoding="utf-8")
         policy = ASSET_POLICY.read_text(encoding="utf-8")
         self.assertIn("exact publication allowlist", skill)
-        self.assertIn("snapshot every allowed file before the first REST request", skill)
+        self.assertIn("snapshot every allowed file before the first REST upload", skill)
         self.assertIn("Never delete or roll back remote files automatically", skill)
         self.assertIn("fresh immutable version", skill)
         self.assertNotIn("rollback_conflicts", skill)
@@ -188,7 +188,8 @@ class ObsidianManuscriptWorkspaceTests(unittest.TestCase):
         for required_text in [
             "vault_publication_status",
             "desktop_export_status",
-            "A Vault REST failure does not block desktop export",
+            "A caught Vault publication failure does not block desktop export",
+            "earlier template-resolution or render failure aborts",
         ]:
             self.assertIn(required_text, skill)
 

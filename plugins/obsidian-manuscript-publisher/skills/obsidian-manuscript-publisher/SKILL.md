@@ -24,6 +24,7 @@ For `둘 다`, run independent blog and custom-template pipelines after the user
 ## Global Safety
 
 - Read runtime configuration from `%LOCALAPPDATA%\CodexObsidianManuscript\runtime.json`; never print API keys, certificates, tokens, private records, or unrelated desktop content.
+- Resolve its `restDataPath` for low-level REST script arguments (`--config` and the legacy Python parameter name `runtime_config`). Those functions read Local REST `data.json`, not the wrapper `runtime.json`. Never put the key itself in arguments; preserve the configured path and TLS checks.
 - Use only the installed HTTPS Local REST API on `127.0.0.1` for Vault writes. Do not use direct filesystem writes, `Copy-Item`, workspace fallbacks, or external image APIs.
 - Require source-boundary checks for untrusted PDF, DOCX, and image input; use extractor evidence, not caller-supplied evidence.
 - Require byte-for-byte readback and SHA-256 equality, deterministic validation, and immutable `v0.N`/`t0.N` allocation before reporting success.
@@ -45,7 +46,7 @@ Adaptive blog versions use `02 Blog/<topic-slug>/v0.N`. Read [references/blog-sc
 
 Custom candidates require `candidate_id`, `preview_ready`, and the exact approved candidate ID. Registration and production follow the custom workflow and its `content_contract` and `layout_contract`. Use the dedicated custom validator, renderer, and publisher; never feed custom data to the blog pipeline.
 
-The publication order is `validation → render → Vault publication attempt → desktop export`; snapshot every allowed file before the first REST request and require byte-for-byte readback. For blogs, export using `scripts/export_publication_bundle.py` only after fresh `status: ready` validation and rendering. Custom manuscripts use `scripts/finalize_custom_publication.py` and its explicit desktop destination. A Vault REST failure does not block desktop export of an eligible local package. Report `vault_publication_status` and `desktop_export_status` separately.
+Blogs follow `validation → render → Vault publication attempt → desktop export`; export using `scripts/export_publication_bundle.py` only after fresh `status: ready` validation and rendering. Custom manuscripts use `scripts/finalize_custom_publication.py`: pinned-template and render-time checks, post-render package validation, Vault attempt, then explicit desktop destination. For publication, snapshot every allowed file before the first REST upload and require byte readback. A caught Vault publication failure does not block desktop export of an eligible local package; earlier template-resolution or render failure aborts. Report `vault_publication_status` and `desktop_export_status` separately.
 
 Use the selected profile's deterministic errors, including `blog_profile_required`, `insufficient_evidence`, `asset_hash_mismatch`, `image_generation_failed`, `validation_not_ready`, `stale_validation`, `unexpected_source_file`, `unsafe_path`, and `immutable_export_conflict`. Stop on missing evidence, stale hashes, invalid assets, renderer errors, or incomplete readback; do not create placeholders or claim completion.
 

@@ -26,6 +26,8 @@ After generation, inspect the selected source at original size with `view_image`
 
 ## Version-Local Record
 
+The manifest schema and automatic checks below describe `adaptive_blog`. For `custom_manuscript`, follow `custom-manuscript-workflow.md`: use input `assets` records and `editorial_review`, preserved with safe output bindings in `custom-validation.json`. Do not add a blog `asset-manifest.json` to a custom package. Shared visual review requirements above still apply; a hash validator is not a semantic image-quality judge.
+
 Each selected asset is copied into `v0.N/assets` and recorded in `asset-manifest.json` with:
 
 - unique `asset_id`

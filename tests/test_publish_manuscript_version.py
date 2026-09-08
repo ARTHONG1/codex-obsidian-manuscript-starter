@@ -33,18 +33,16 @@ import publish_manuscript_version as publisher
 
 
 class PublishManuscriptVersionTests(BlogPackageMixin, unittest.TestCase):
-    def test_custom_and_generic_binary_publication_preserve_original_bytes(self):
+    def test_generic_binary_publication_preserves_original_bytes(self):
         for destination in (
             "Projects/Example/Exports/raw/v0.1",
-            "03 Custom Manuscript/Example/v0.1",
-            "01 Projects/Example/03 Custom Manuscript/layout/v0.1",
         ):
             with self.subTest(destination=destination), tempfile.TemporaryDirectory() as temporary:
                 version_dir = Path(temporary)
                 payloads = {
-                    "manuscript.md": b"# Custom manuscript",
-                    "manuscript.html": b"<h1>Custom manuscript</h1>",
-                    "manuscript.pdf": b"%PDF-1.7\x00\xff",
+                    "artifact.md": b"# Generic output",
+                    "artifact.html": b"<h1>Generic output</h1>",
+                    "artifact.pdf": b"%PDF-1.7\x00\xff",
                     "artifact.bin": bytes(range(256)),
                 }
                 for name, content in payloads.items():

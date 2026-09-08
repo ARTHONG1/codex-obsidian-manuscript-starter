@@ -89,6 +89,7 @@ try {
         $bytes = [IO.File]::ReadAllBytes((Join-Path $source ($relative -replace "/", "\")))
         if (Test-Privacy $relative $bytes) { Fail "privacy marker or secret-like file: $relative" }
         $entry = $archive.CreateEntry((Normalize $relative), [IO.Compression.CompressionLevel]::Optimal)
+        $entry.LastWriteTime = [DateTimeOffset]::new(2000, 1, 1, 0, 0, 0, [TimeSpan]::Zero)
         $stream = $entry.Open()
         try { $stream.Write($bytes, 0, $bytes.Length) } finally { $stream.Dispose() }
     }
